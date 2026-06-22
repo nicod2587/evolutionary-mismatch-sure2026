@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 from functools import partial
 
+from .constants import (
+    STEP_SIZE_DEFAULT, REFRACTORY_DROP_DEFAULT, MAX_SPIKES_DEFAULT,
+    WANDER_DT_DEFAULT, WANDER_SPEED_DEFAULT, TURN_NOISE_DEFAULT,
+    ENGAGE_THRESHOLD_DEFAULT, MIN_DT, STALL_WARN_TICKS,
+)
+
 
 @dataclass
 class AgentHistory:
@@ -71,14 +77,14 @@ class Agent:
         y0: float = -240.0,
         source_x: float = 0.0, #idk if this should be here, might change later when i do the poission random enviroement
         source_y: float = 0.0, #will need to figure out how the agent will know where the source is though
-        step_size: float = 5.0,
-        refractory_drop: float = 5.0, #how far below theta to rest, biologically isnt this below resting?
+        step_size: float = STEP_SIZE_DEFAULT,
+        refractory_drop: float = REFRACTORY_DROP_DEFAULT, #how far below theta to rest, biologically isnt this below resting?
         stimulus_func: Optional[Callable] = None, #dont really understand this yet  stimulus_func : callable, optional f(r, t, params) -> float. Falls back to the default Gaussian envelope x ripple if not provided.
-        max_spikes: int = 100_000, #just saftey for the moment
-        wander_dt: float = 2.0, #Tick length for random walk, should be below typical ISI (5-20 here) so wandering doesn't itself blur out fast spiking
-        wander_speed: float = 4.0, #should be around world half/ sigma but ill put it 4 for the sim
-        turn_noise: float = 0.25, #smaller = smoother
-        engage_threshold: float = 8.0, #input value at which agent is engaged
+        max_spikes: int = MAX_SPIKES_DEFAULT, #just saftey for the moment
+        wander_dt: float = WANDER_DT_DEFAULT, #Tick length for random walk, should be below typical ISI (5-20 here) so wandering doesn't itself blur out fast spiking
+        wander_speed: float = WANDER_SPEED_DEFAULT, #should be around world half/ sigma but ill put it 4 for the sim
+        turn_noise: float = TURN_NOISE_DEFAULT, #smaller = smoother
+        engage_threshold: float = ENGAGE_THRESHOLD_DEFAULT, #input value at which agent is engaged
         world_half: Optional[float] = None, #world size to know where edge is
         rng: Optional[np.random.Generator] = None, #if i want same run every time parse in input
     ):
@@ -242,9 +248,9 @@ class Agent:
         fire_times = []
 
         n_spikes = 0
-        MIN_DT = 1e-9  # guards against zero-length integration windows
         engaged_no_spike_ticks = 0  # diagnostic counter, see warning below
-        STALL_WARN_TICKS = 200      # ~400 time units at default wander_dt
+        # MIN_DT and STALL_WARN_TICKS now come from constants.py (imported above) --
+        # same values (1e-9, 200) this method always used.
 
         while t_current < t_end:
             r_now = self._r(self.x, self.y)
