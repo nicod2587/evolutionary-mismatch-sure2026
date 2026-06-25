@@ -101,9 +101,8 @@ class Agent:
         self.rng = rng if rng is not None else np.random.default_rng()
         self.heading = float(self.rng.uniform(0, 2 * np.pi))
 
-    # ------------------------------------------------------------------
     # Neural firing threshold in stimulus units
-    # ------------------------------------------------------------------
+
 
     @property
     def I_fire(self) -> float:
@@ -111,9 +110,8 @@ class Agent:
         p = self.p
         return p['theta'] - p['V_rest'] + p['beta_pfc_max'] - p['beta_bg']
 
-    # ------------------------------------------------------------------
     # E_R-based engagement weight
-    # ------------------------------------------------------------------
+
 
     @property
     def _E_R_engage_threshold(self) -> float:
@@ -131,9 +129,9 @@ class Agent:
         z = (E_R - self._E_R_engage_threshold) / self.E_R_scale
         return float(1.0 / (1.0 + np.exp(-z)))
 
-    # ------------------------------------------------------------------
+
     # Stimulus helpers
-    # ------------------------------------------------------------------
+
 
     def _total_I(self, t: float) -> float:
         """Sum of all stimulus intensity contributions at the current coordinates."""
@@ -143,9 +141,9 @@ class Agent:
         """Returns the stimulus source yielding the highest local intensity."""
         return max(self.stimuli, key=lambda s: s.eval_at(self.x, self.y, t))
 
-    # ------------------------------------------------------------------
+
     # Movement
-    # ------------------------------------------------------------------
+
 
     def _gradient_direction_to(self, sx: float, sy: float) -> np.ndarray:
         """Unit vector from current position toward (sx, sy). Zero if already there."""
@@ -202,9 +200,8 @@ class Agent:
         self.x = new_x
         self.y = new_y
 
-    # ------------------------------------------------------------------
     # ODE system
-    # ------------------------------------------------------------------
+
 
     def _odes(self, t: float, y: np.ndarray) -> list:
         """4-state ODE system tracking S, V, E_R, and beta_PFC."""
@@ -232,9 +229,7 @@ class Agent:
 
         return [dSdt, dVdt, dE_Rdt, dbeta_PFCdt]
 
-    # ------------------------------------------------------------------
     # Main simulation loop
-    # ------------------------------------------------------------------
 
     def simulate(self, t_span: tuple, rtol: float = 1e-6, atol: float = 1e-8) -> AgentHistory:
         """
