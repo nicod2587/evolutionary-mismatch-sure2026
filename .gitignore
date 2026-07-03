@@ -7,9 +7,10 @@ __pycache__/
 venv/
 env/
 ENV/
-# Jupyter Notebook 
+hpc_env/
+# Jupyter Notebook
 .ipynb_checkpoints/
-# VS Code 
+# VS Code
 .vscode/
 # Environment and local config files
 .env
@@ -17,3 +18,8 @@ ENV/
 # macOS and Windows file metadata
 .DS_Store
 Thumbs.db
+# Word lock/temp files
+~$*.doc
+~$*.docx
+# HPC/SLURM job logs (regenerable run output)
+*.log
