@@ -1,51 +1,29 @@
 """
-agent.py — Chemotaxis-based engagement model, wired to the Patch-depletion
-world (see natural_world.py).
+agent.py — Chemotaxis engagement model, wired to the patch world (natural_world.py).
 
-Replaces the binary engage/wander toggle with a biased random walk modulated
-by the agent's internal reward expectation (E_R). This eliminates the border-freeze
-artifact and keeps the agent trapped near a stimulus patch even after homeostatic
-suppression stops active spiking — simulating the cognitive lag of compulsive
-scrolling.
+The agent moves by a biased random walk modulated by its reward expectation E_R
+(rather than a binary engage/wander toggle), so it stays pulled toward a patch
+even after homeostatic suppression stops its spiking — the lag of compulsive
+scrolling. Integrate the ODEs and run the loop with simulate().
 
-World-aware operation
----------------------
-Pass a world (AncestralWorld instance) to the constructor and all world-specific
-overrides are activated automatically — no subclass or factory needed.
+Pass world=AncestralWorld(...) to enable world mode (no subclass needed). Then:
+  - I(r,t) is summed from each patch's sensory_salience (perceived pull, not
+    utility): an ancestral patch's drive fades as it drains, a modern one stays
+    high even when empty — the supernormal trap.
+  - Each step: world.advance(t) runs respawn timers + fade-in; the dominant patch
+    comes from world.dominant_patch().
+  - On a spike: world.engage_patch() harvests real utility (tracked separately
+    from perceived salience) and spike-fades the patch, despawning it if worked
+    out. A spike also resets the giving-up clock.
+  - Local (per-patch) habituation builds up while it lingers unrewarded and
+    erodes that patch's pull, so it tires of a patch and wanders off toward
+    novelty; leaving a spent husk lets the world despawn it (world.leave_patch).
+    This is the trap-breaker — a stuck agent habituates and leaves.
+  - Travel friction scales wander_speed by mismatch_index: costly ancestral
+    travel, frictionless modern patch-switching.
 
-  agent = Agent(params, world=world, rng=rng)
-
-When world is provided:
-  - _total_I_world reads each Patch's `sensory_salience` directly (the
-    perceptual-pull number, NOT `current_utility`) — this is what feeds the
-    neural input current I(r,t). In the ancestral regime a depleted patch's
-    salience decays with it, so the neural drive fades and the agent leaves
-    naturally. In the modern regime salience stays pinned near 1.0 even at
-    zero utility, so the neural network keeps perceiving high reward
-    availability from an empty patch — the supernormal-stimulus trap.
-  - _dominant_source resolves the world's dominant Patch via
-    `world.dominant_patch()` and wraps it as a perceptual source via
-    `Patch.to_source()`, with a silent-source fallback when no patch is
-    perceptible.
-  - Every call to _dominant_source also tracks patch *occupancy*: the moment
-    the agent's dominant patch changes, `world.notify_agent_exit()` fires on
-    the patch just vacated, which is what allows a depleted patch to
-    despawn and a replacement to spawn elsewhere.
-  - On each spike (the discrete "engagement" event), the agent calls
-    `world.engage_patch(patch, amount)` and accumulates the ACTUAL harvested
-    utility this returns — a number that is completely decoupled from the
-    perceived stimulus intensity that drove the spike. This is the real
-    fitness yield; perceived salience and actual yield are tracked as two
-    separate numbers throughout.
-  - _biased_wander_step applies a global travel-friction penalty to
-    wander_speed, scaled by `world.mismatch_index`: high friction (slow,
-    costly travel between patches) in the ancestral regime, friction ->0
-    (instantaneous, thumb-swipe patch switching) in the modern regime.
-
-When world is None (legacy single-source mode):
-  - stimuli must be supplied explicitly
-  - all methods fall back to the original self.stimuli path
-  - no patch tracking, harvesting, or friction scaling applies
+With world=None (legacy single-source mode) stimuli are supplied explicitly and
+none of the patch/harvest/friction machinery applies.
 """
 
 import numpy as np
@@ -79,55 +57,33 @@ class AgentHistory:
     I:          np.ndarray      # total summed stimulus intensity (perceived)
     eng_weight: np.ndarray      # engagement weight in [0,1] at each timestep
     harvested_utility: np.ndarray
-    # ^ REAL fitness yield harvested per spike, aligned 1:1 with fire_times
-    # (NOT with t). This is `world.engage_patch()`'s return value at each
-    # spike — the actual utility drained from the dominant patch, clipped to
-    # what remained. Deliberately decoupled from `I`/`eng_weight`, which
-    # reflect perceived salience and can stay high in the modern regime even
-    # while this collapses to zero. Legacy (non-world) agents get an
-    # all-zero array of the same length as fire_times, since there is no
-    # patch to harvest from.
+    # ^ Real utility harvested per spike (world.engage_patch's return), aligned
+    # 1:1 with fire_times, NOT t. Decoupled from I/eng_weight, which track
+    # perceived salience and stay high on an empty modern patch. All-zero in
+    # legacy mode (no patch to harvest).
     total_distance: float
-    # ^ Total scalar path length travelled over the whole run — the sum of
-    # per-iteration Euclidean displacements in (x, y), covering BOTH spike
-    # steps (the discrete step_size hop toward the dominant source) and
-    # wander steps (the biased-random-walk movement). A single number, not
-    # a per-timestep array — useful as a cheap "how frantically did this
-    # genome move" diagnostic alongside n_spikes / harvested_utility.
+    # ^ Total path length over the run (spike hops + wander steps). Cheap "how
+    # frantically did it move" diagnostic.
     wander_distance: float = 0.0
-    # ^ Path length from WANDER steps only (the biased random walk that carries
-    # the agent between patches) — i.e. total_distance minus the per-spike
-    # step_size hops. This is the real locomotor/foraging travel and is what
-    # metabolic_burn is charged against: an agent trapped on a patch fires
-    # thousands of in-place spikes (huge total_distance from the hop jitter) but
-    # barely wanders, so wander_distance stays low; an agent foraging across
-    # rare, far-apart ancestral patches wanders a lot. Using this instead of
-    # total_distance stops the stationary-but-spiking trap from being scored as
-    # high physical effort.
+    # ^ Path length from wander steps only (excludes spike hops) — the real
+    # locomotor travel metabolic_burn is charged against. A patch-trapped agent
+    # jitters in place (low wander_distance) while a forager ranging between rare
+    # patches accumulates a lot, so this avoids scoring the trap as high effort.
     frames: Optional[list] = None
-    # ^ OPT-IN world-animation frames, populated only when simulate() is called
-    # with record_frames > 0 (default: None, so the GA hot path is untouched).
-    # A list of dicts, one per sampled frame time, each:
-    #   {'t', 'x', 'y', 'V', 'w', 'spiked', 'patches'}
-    # where 'patches' is a list of (px, py, sensory_salience) tuples capturing
-    # the world's patch layout at that instant (positions included so patch
-    # respawns are animated correctly). None-valued 'patches' in legacy
-    # (non-world) mode. Consumed by animation.create_world_animation.
+    # ^ Opt-in animation frames, only when simulate(record_frames>0); else None
+    # (GA hot path untouched). Each frame: {'t','x','y','V','w','spiked',
+    # 'patches'} with 'patches' = list of (x, y, salience). Consumed by
+    # animation.create_world_animation.
 
 
 def net_travel_distance(history: "AgentHistory", window: float = 500.0) -> float:
     """
-    Coarse-grained NET travel distance: the trajectory is resampled onto a
-    uniform time grid of spacing `window`, and the straight-line displacements
-    between consecutive grid points are summed.
-
-    This is the physically meaningful "how far did the agent actually range"
-    measure that metabolic_burn is charged against. Sub-`window` back-and-forth
-    jitter cancels out (net ~0 within a window), so an agent trapped fidgeting
-    on a patch scores ~0 no matter how many little steps or in-place spike hops
-    it makes, while an agent making long directed journeys between rare patches
-    accumulates real distance. (Contrast total_distance / wander_distance, which
-    are raw path lengths and count in-place oscillation as travel.)
+    Net travel distance: resample the trajectory onto a time grid of spacing
+    `window` and sum the straight-line hops between grid points. Sub-window
+    jitter cancels, so an agent fidgeting on a patch scores ~0 while one making
+    long journeys between patches accumulates real distance. This is the range
+    measure metabolic_burn is charged against (unlike the raw path lengths
+    total_distance / wander_distance).
     """
     t = history.t
     if len(t) < 2:
@@ -163,21 +119,42 @@ class Agent:
         min_speed_fraction: float = 0.25,
         world_half: Optional[float] = None,
         travel_friction_scale: float = 3.0,
-        patch_harvest_amount: float = 1.0,
+        patch_harvest_amount: float = 0.10,
+        habituation_rise: float = 200.0,
+        habituation_recovery: float = 2000.0,
+        habituation_reward_relief: float = 0.15,
+        habituation_radius: float = 1.0,
         rng: Optional[np.random.Generator] = None,
     ):
         """
-        travel_friction_scale — maximum wander-speed penalty (subtracted
-            from wander_speed while travelling) at mismatch_index=0.0
-            (pure ancestral). Scales linearly to 0 penalty at
-            mismatch_index=1.0 (pure modern). Only used in world mode.
+        World-mode knobs (ignored when world is None):
 
-        patch_harvest_amount — the amount of `current_utility` a single
-            spike attempts to drain from the dominant patch via
-            `world.engage_patch()`. The call is clipped internally to
-            whatever utility actually remains, so this is a ceiling on
-            per-spike yield, not a guaranteed amount. Only used in world
-            mode.
+        travel_friction_scale — max wander-speed penalty at mismatch_index=0
+            (ancestral), scaling to 0 at mismatch_index=1 (modern).
+
+        patch_harvest_amount — utility a spike tries to drain (clipped to what's
+            left). Also the per-spike salience fade, so with the profile's
+            salience_scale it sets the depletion timescale: worked-out despawn
+            takes ~0.75*salience_scale/patch_harvest_amount spikes. Smaller =
+            more gradual (a fresh patch spikes fast, so too large a value drains
+            it almost instantly); 0.10 keeps the despawn watchable.
+
+        Local habituation — a per-patch "I've had enough of this one" signal the
+        agent builds up while sitting in a patch, which suppresses that patch's
+        perceived pull (in _eff_salience) so the agent tires of it and wanders
+        off toward novelty. It is what lets the agent leave a patch without the
+        world deleting it (see world.leave_patch), and it is the trap-breaker: a
+        stuck, non-spiking agent habituates and leaves instead of freezing.
+          habituation_rise — timescale (sim-time) to habituate to a patch while
+            sitting in it with no reward; smaller = leaves sooner.
+          habituation_recovery — timescale to un-habituate once away, so the
+            agent can eventually be drawn back. Keep >> the time to walk out of a
+            patch, or it gets re-captured before it escapes.
+          habituation_reward_relief — how much a rewarded spike knocks habituation
+            back down, so a patch the agent is actually harvesting does not get
+            abandoned (only unproductive lingering builds habituation up).
+          habituation_radius — the agent only habituates while within this many
+            sigma of the patch centre (i.e. actually in it).
         """
         # ── world vs stimuli ──────────────────────────────────────────────────
         # Exactly one of world or stimuli must be provided.
@@ -193,6 +170,7 @@ class Agent:
 
         self.world = world
         self._current_patch: Optional["Patch"] = None  # world-mode occupancy tracker
+        self._habituation: dict = {}   # patch_id -> local habituation h in [0,1)
 
         if world is not None:
             # World mode: seed self.stimuli with whatever is active at t=0 so
@@ -247,6 +225,10 @@ class Agent:
         self.world_half        = float(world_half) if world_half is not None else None
         self.travel_friction_scale = float(travel_friction_scale)
         self.patch_harvest_amount  = float(patch_harvest_amount)
+        self.habituation_rise      = float(habituation_rise)
+        self.habituation_recovery  = float(habituation_recovery)
+        self.habituation_reward_relief = float(habituation_reward_relief)
+        self.habituation_radius    = float(habituation_radius)
         self.rng               = rng if rng is not None else np.random.default_rng()
         self.heading           = float(self.rng.uniform(0, 2 * np.pi))
 
@@ -291,89 +273,102 @@ class Agent:
             return self._total_I_world(t)
         return float(sum(s.eval_at(self.x, self.y, t) for s in self.stimuli))
 
-    def _total_I_world(self, t: float) -> float:
-        """
-        Hot path for world mode. Called only from _total_I.
+    def _hab(self, patch: "Patch") -> float:
+        """This agent's local habituation to `patch`, in [0,1)."""
+        return self._habituation.get(patch.patch_id, 0.0)
 
-        Sums perceptual intensity across all patches using each patch's
-        `sensory_salience` — the perceptual-pull number — NOT
-        `current_utility`. This is deliberate: in the modern regime a patch
-        can sit at current_utility=0 while sensory_salience stays pinned
-        near its salience_floor ceiling, keeping the neural input current
-        I(r,t) — and therefore this function's output — high even though
-        there is nothing left to actually gain. Mirrors the maths in
-        `Patch.to_source().eval_at()` without constructing intermediate
-        StimulusSource objects.
+    def _patch_intensity(self, patch: "Patch", t: float) -> float:
         """
-        total = 0.0
-        ax, ay = self.x, self.y
-        for patch in self.world.patches:
-            salience = patch.sensory_salience
-            if salience <= 1e-7:
-                continue
-            prof = patch.profile
-            r = np.sqrt((ax - patch.x) ** 2 + (ay - patch.y) ** 2)
-            env    = prof['A'] * np.exp(-((r ** 2) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
-            ripple = 1.0 + prof['alpha'] * np.sin(prof['omega'] * t - prof['k'] * r)
-            total += salience * env * ripple
-        return float(total)
+        Perceived I(r,t) this agent gets from `patch` at its current position,
+        using habituation-suppressed salience (eff = salience * (1 - h)). Both
+        the total drive and the choice of dominant patch use this, so a patch the
+        agent has tired of both drives the neuron less and stops being dominant.
+        """
+        eff = patch.sensory_salience * (1.0 - self._hab(patch))
+        if eff <= 1e-7:
+            return 0.0
+        prof = patch.profile
+        r = np.sqrt((self.x - patch.x) ** 2 + (self.y - patch.y) ** 2)
+        env    = prof['A'] * np.exp(-((r ** 2) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
+        ripple = 1.0 + prof['alpha'] * np.sin(prof['omega'] * t - prof['k'] * r)
+        return float(eff * env * ripple)
+
+    def _total_I_world(self, t: float) -> float:
+        """World-mode hot path: sum habituation-suppressed I(r,t) over patches, so
+        an empty-but-glowing modern patch still drives the neuron (utility gone,
+        salience high) but a habituated one drives it less."""
+        return float(sum(self._patch_intensity(p, t) for p in self.world.patches))
 
     def _dominant_source(self, t: float) -> StimulusSource:
         """
-        Returns the stimulus source with the highest local intensity.
-
-        World mode: resolves `world.dominant_patch()` and wraps it via
-        `Patch.to_source()`; falls back to the silent dummy source if no
-        patch is currently perceptible (all salience ~0). Every call also
-        updates the agent's tracked patch occupancy (see
-        `_update_current_patch`) — this is the single choke point through
-        which `world.notify_agent_exit()` gets fired, so callers don't need
-        to manage patch transitions themselves.
-
-        Legacy mode: argmax over self.stimuli.
+        The strongest local stimulus source (by habituation-suppressed
+        intensity). World mode: pick the max-intensity patch, wrap it via
+        Patch.to_source() (silent-source fallback if none is perceptible), and
+        update tracked occupancy. Legacy mode: argmax over self.stimuli.
         """
         if self.world is not None:
             from .natural_world import _silent_source
-            patch = self.world.dominant_patch(self.x, self.y, t)
-            self._update_current_patch(patch)
-            if patch is None:
+            best, best_val = None, 0.0
+            for p in self.world.patches:
+                v = self._patch_intensity(p, t)
+                if v > best_val:
+                    best_val, best = v, p
+            self._update_current_patch(best, t)
+            if best is None:
                 return _silent_source(self.world.world_half)
-            src = patch.to_source(t)
+            src = best.to_source(t)
             if src is None:
-                # Salience collapsed to ~0 between selection and wrapping —
-                # shouldn't normally happen since dominant_patch only
-                # returns patches with positive salience, but guard anyway.
                 return _silent_source(self.world.world_half)
             return src
         return max(self.stimuli, key=lambda s: s.eval_at(self.x, self.y, t))
 
-    def _update_current_patch(self, patch: Optional["Patch"]) -> None:
-        """
-        Track which patch the agent is currently dominated by. The instant
-        the dominant patch changes — including transitioning to/from
-        None — notify the world that the agent has left the *previous*
-        patch. This is the exit hook that lets a depleted patch actually
-        despawn and a fresh one spawn elsewhere; until this fires, a spent
-        patch just sits there (still glowing, in the modern regime).
-        """
+    def _update_current_patch(self, patch: Optional["Patch"], t: float) -> None:
+        """Track the dominant patch. On leaving one, tell the world (which
+        despawns it only if it is a spent husk — see world.leave_patch)."""
         if patch is self._current_patch:
             return
         if self._current_patch is not None:
-            self.world.notify_agent_exit(self._current_patch)
+            self.world.leave_patch(self._current_patch, t)
         self._current_patch = patch
 
-    def _harvest_patch(self, patch: Optional["Patch"]) -> float:
+    def _update_habituation(self, dt: float) -> None:
         """
-        Drive one discrete engagement/harvest event against `patch` (called
-        on spike). Returns the ACTUAL utility harvested — clipped to
-        whatever remained — via `world.engage_patch()`. This is completely
-        separate from perceived stimulus intensity: a modern-regime patch
-        can keep firing spikes (high perceived I) while this returns 0.0
-        because current_utility is already exhausted.
+        Advance local habituation by dt. The current patch habituates (h -> 1)
+        while the agent sits in its core with no reward; every other patch
+        un-habituates (h -> 0). Rewarded spikes relieve the current patch's
+        habituation at the spike site, so a patch being actively harvested does
+        not get abandoned. When h gets high the patch's perceived pull collapses
+        (see _patch_intensity) and the agent wanders off toward novelty.
+        """
+        if dt <= 0.0:
+            return
+        cur = self._current_patch
+        cur_id = None
+        if cur is not None:
+            core = self.habituation_radius * cur.profile['sigma']
+            if (self.x - cur.x) ** 2 + (self.y - cur.y) ** 2 < core * core:
+                cur_id = cur.patch_id
+                h = self._habituation.get(cur_id, 0.0)
+                self._habituation[cur_id] = h + (1.0 - h) * (1.0 - np.exp(-dt / self.habituation_rise))
+        decay = np.exp(-dt / self.habituation_recovery)
+        for pid in list(self._habituation.keys()):
+            if pid == cur_id:
+                continue
+            h = self._habituation[pid] * decay
+            if h < 1e-3:
+                del self._habituation[pid]
+            else:
+                self._habituation[pid] = h
+
+    def _harvest_patch(self, patch: Optional["Patch"], t: float) -> float:
+        """
+        Harvest `patch` on a spike via world.engage_patch (drains utility and
+        spike-fades salience); returns the real utility harvested — 0.0 on an
+        exhausted modern patch even though it keeps firing spikes.
         """
         if patch is None or self.world is None:
             return 0.0
-        return float(self.world.engage_patch(patch, self.patch_harvest_amount))
+        return float(self.world.engage_patch(patch, self.patch_harvest_amount, t))
 
     # ── movement ──────────────────────────────────────────────────────────────
 
@@ -387,27 +382,11 @@ class Agent:
 
     def _biased_wander_step(self, E_R: float, t: float) -> None:
         """
-        Chemotactic step blending random walk and directional gradient pull.
-
-        As engagement weight w increases:
-          - Turning noise drops to zero.
-          - Speed scales down to min_speed_fraction floor.
-          - Heading is pulled toward the dominant source.
-
-        World mode adds two behaviours:
-
-          Silent suppression: when no patch is currently perceptible the
-          gradient pull is suppressed (E_R passed as 0) to prevent spurious
-          attraction toward the silent dummy source at the world origin.
-
-          Travel friction: wander_speed is reduced by a penalty that scales
-          with `world.mismatch_index` —
-              penalty = (1 - mismatch_index) * travel_friction_scale
-          modelling the real travel/exploration cost of the ancestral world.
-          As mismatch_index -> 1 (modern) the penalty vanishes entirely,
-          so the same genome can switch patches instantly and frictionlessly
-          — a thumb swipe. Speed is clamped to 0 minimum; the original value
-          is always restored in a finally block.
+        Chemotactic step blending a random walk with gradient pull toward the
+        dominant source. As engagement weight w rises, turn noise drops, speed
+        falls to the min_speed_fraction floor, and heading locks onto the source.
+        World mode adds silent-source suppression and travel friction (see the
+        two helpers below).
         """
         if self.world is not None:
             self._biased_wander_step_world(E_R, t)
@@ -415,7 +394,8 @@ class Agent:
             self._biased_wander_step_core(E_R, t)
 
     def _biased_wander_step_world(self, E_R: float, t: float) -> None:
-        """World-mode wander step. Called only from _biased_wander_step."""
+        """World-mode wander step: apply travel friction (full ancestral, none
+        modern), and suppress gradient pull when no patch is perceptible."""
         dom = self._dominant_source(t)
         patch = getattr(dom, '_patch', None)
 
@@ -504,29 +484,16 @@ class Agent:
     def simulate(self, t_span: tuple, rtol: float = 1e-6, atol: float = 1e-8,
                  record_frames: int = 0) -> AgentHistory:
         """
-        Runs the core integration loop, halting at upward threshold crossings.
+        Integrate the ODEs segment by segment, halting each segment at a
+        threshold crossing (a spike). A spike harvests the dominant patch
+        (world.engage_patch), decrements the PFC brake, and resets V; between
+        spikes the agent chemotaxis-wanders (approach is entirely chemotaxis — no
+        spatial lunge). The world clock, respawns, and habituation are updated
+        inline in the loop.
 
-        Spikes trigger:
-          - a discrete engagement/harvest event against the dominant patch
-            (world mode): world.engage_patch() drains current_utility and
-            returns the actual amount harvested, accumulated separately from
-            perceived intensity.
-          - a discrete step toward the dominant source
-          - per-spike PFC fatigue decrement
-          - refractory voltage reset
-
-        Between spikes the agent calls _biased_wander_step for chemotactic
-        movement, subject to world-mismatch-scaled travel friction.
-
-        Patch occupancy (and therefore despawn/respawn via
-        world.notify_agent_exit) is tracked transparently every time
-        _dominant_source() is called — no separate bookkeeping needed here.
-
-        record_frames > 0 opts in to world-animation recording: up to that many
-        evenly-time-spaced snapshots of (agent pose + full patch layout) are
-        captured into AgentHistory.frames for animation.create_world_animation.
-        It is OFF by default (0), so the GA / fitness evaluation hot path pays
-        nothing.
+        record_frames > 0 captures that many evenly-spaced snapshots (pose +
+        patch layout) into AgentHistory.frames for the animation; it is off by
+        default so the GA hot path pays nothing.
         """
         t_start, t_end = t_span
         p = self.p
@@ -573,6 +540,10 @@ class Agent:
 
         while t_current < t_end:
             old_x, old_y = self.x, self.y  # position before this iteration's movement
+            # Step the world clock: process any Poisson-delayed patch respawns
+            # and advance fade-in ramps so this segment sees current salience.
+            if self.world is not None:
+                self.world.advance(t_current)
             segment_end = min(t_current + self.wander_dt, t_end)
 
             sol = solve_ivp(
@@ -614,11 +585,18 @@ class Agent:
 
                 dom = self._dominant_source(t_new)
                 patch = getattr(dom, '_patch', None)
-                harvested_h.append(self._harvest_patch(patch))
+                harvested = self._harvest_patch(patch, t_new)
+                harvested_h.append(harvested)
 
-                direction = self._gradient_direction_to(dom.x, dom.y)
-                self.x += self.step_size * direction[0]
-                self.y += self.step_size * direction[1]
+                # A rewarded spike relieves habituation, so a patch the agent is
+                # actually harvesting keeps its pull; only unproductive lingering
+                # builds habituation up. (No spatial "lunge" — approach is left
+                # entirely to chemotaxis, so movement stays coupled to the walk.)
+                if harvested > 0.0 and self._current_patch is not None:
+                    pid = self._current_patch.patch_id
+                    self._habituation[pid] = max(
+                        0.0, self._habituation.get(pid, 0.0) - self.habituation_reward_relief
+                    )
 
                 state[3] = max(0.0, state[3] - p['alpha_pfc'])
                 state[1] = p['theta'] - self.refractory_drop
@@ -657,15 +635,19 @@ class Agent:
                 else:
                     slow_ticks = 0
 
-            # Physical distance covered this iteration — whichever branch ran
-            # above (spike hop or wander step) already updated self.x/self.y,
-            # so this captures both movement types uniformly. Accumulated
-            # before the break check below so a run that halts mid-iteration
-            # (MIN_DT stall) still counts the movement that already happened.
+            # Advance local habituation: the current patch tires the agent while
+            # it lingers there unrewarded, which erodes that patch's pull (via
+            # _patch_intensity) until the agent disengages and moves on — the
+            # trap-breaker, and what makes a full modern patch a passing graze
+            # rather than a permanent hook. Leaving is emergent: as the pull
+            # falls, the dominant patch changes and _update_current_patch tells
+            # the world (which despawns the patch only if it is a spent husk).
+            if self.world is not None:
+                self._update_habituation(t_new - t_current)
+
+            # Distance this iteration. Charge only wander steps to wander_distance.
             disp = float(np.linalg.norm([self.x - old_x, self.y - old_y]))
             total_distance += disp
-            # Charge only wander-step locomotion to wander_distance; the spike
-            # branch's step_size hop is excluded (it is engagement, not travel).
             if not spiked:
                 wander_distance += disp
 
