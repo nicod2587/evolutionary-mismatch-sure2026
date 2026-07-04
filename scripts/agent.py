@@ -94,6 +94,51 @@ class AgentHistory:
     # wander steps (the biased-random-walk movement). A single number, not
     # a per-timestep array — useful as a cheap "how frantically did this
     # genome move" diagnostic alongside n_spikes / harvested_utility.
+    wander_distance: float = 0.0
+    # ^ Path length from WANDER steps only (the biased random walk that carries
+    # the agent between patches) — i.e. total_distance minus the per-spike
+    # step_size hops. This is the real locomotor/foraging travel and is what
+    # metabolic_burn is charged against: an agent trapped on a patch fires
+    # thousands of in-place spikes (huge total_distance from the hop jitter) but
+    # barely wanders, so wander_distance stays low; an agent foraging across
+    # rare, far-apart ancestral patches wanders a lot. Using this instead of
+    # total_distance stops the stationary-but-spiking trap from being scored as
+    # high physical effort.
+    frames: Optional[list] = None
+    # ^ OPT-IN world-animation frames, populated only when simulate() is called
+    # with record_frames > 0 (default: None, so the GA hot path is untouched).
+    # A list of dicts, one per sampled frame time, each:
+    #   {'t', 'x', 'y', 'V', 'w', 'spiked', 'patches'}
+    # where 'patches' is a list of (px, py, sensory_salience) tuples capturing
+    # the world's patch layout at that instant (positions included so patch
+    # respawns are animated correctly). None-valued 'patches' in legacy
+    # (non-world) mode. Consumed by animation.create_world_animation.
+
+
+def net_travel_distance(history: "AgentHistory", window: float = 500.0) -> float:
+    """
+    Coarse-grained NET travel distance: the trajectory is resampled onto a
+    uniform time grid of spacing `window`, and the straight-line displacements
+    between consecutive grid points are summed.
+
+    This is the physically meaningful "how far did the agent actually range"
+    measure that metabolic_burn is charged against. Sub-`window` back-and-forth
+    jitter cancels out (net ~0 within a window), so an agent trapped fidgeting
+    on a patch scores ~0 no matter how many little steps or in-place spike hops
+    it makes, while an agent making long directed journeys between rare patches
+    accumulates real distance. (Contrast total_distance / wander_distance, which
+    are raw path lengths and count in-place oscillation as travel.)
+    """
+    t = history.t
+    if len(t) < 2:
+        return 0.0
+    tg = np.arange(float(t[0]), float(t[-1]), float(window))
+    if len(tg) < 2:
+        return float(np.hypot(history.x[-1] - history.x[0],
+                              history.y[-1] - history.y[0]))
+    xg = np.interp(tg, t, history.x)
+    yg = np.interp(tg, t, history.y)
+    return float(np.sum(np.hypot(np.diff(xg), np.diff(yg))))
 
 
 class Agent:
@@ -456,7 +501,8 @@ class Agent:
 
     # ── main loop ─────────────────────────────────────────────────────────────
 
-    def simulate(self, t_span: tuple, rtol: float = 1e-6, atol: float = 1e-8) -> AgentHistory:
+    def simulate(self, t_span: tuple, rtol: float = 1e-6, atol: float = 1e-8,
+                 record_frames: int = 0) -> AgentHistory:
         """
         Runs the core integration loop, halting at upward threshold crossings.
 
@@ -475,6 +521,12 @@ class Agent:
         Patch occupancy (and therefore despawn/respawn via
         world.notify_agent_exit) is tracked transparently every time
         _dominant_source() is called — no separate bookkeeping needed here.
+
+        record_frames > 0 opts in to world-animation recording: up to that many
+        evenly-time-spaced snapshots of (agent pose + full patch layout) are
+        captured into AgentHistory.frames for animation.create_world_animation.
+        It is OFF by default (0), so the GA / fitness evaluation hot path pays
+        nothing.
         """
         t_start, t_end = t_span
         p = self.p
@@ -489,11 +541,32 @@ class Agent:
         t_current = t_start
 
         total_distance = 0.0
+        wander_distance = 0.0
 
         times, S_h, V_h, E_h, B_h = [], [], [], [], []
         x_h, y_h, r_h, I_h, ew_h = [], [], [], [], []
         fire_times = []
         harvested_h = []
+
+        # ── opt-in animation frame recording ──────────────────────────────────
+        frames = None
+        frame_times = None
+        next_frame = 0
+        if record_frames and record_frames > 0:
+            frames = []
+            frame_times = np.linspace(t_start, t_end, int(record_frames))
+
+        def _record_frame(t_now: float, cur_state: np.ndarray, spiked_now: bool) -> None:
+            if self.world is not None:
+                patch_snap = [(pt.x, pt.y, pt.sensory_salience) for pt in self.world.patches]
+            else:
+                patch_snap = [(s.x, s.y, 1.0) for s in self.stimuli]
+            frames.append({
+                't': float(t_now), 'x': float(self.x), 'y': float(self.y),
+                'V': float(cur_state[1]),
+                'w': float(self._engagement_weight(cur_state[2])),
+                'spiked': bool(spiked_now), 'patches': patch_snap,
+            })
 
         n_spikes   = 0
         slow_ticks = 0
@@ -589,12 +662,30 @@ class Agent:
             # so this captures both movement types uniformly. Accumulated
             # before the break check below so a run that halts mid-iteration
             # (MIN_DT stall) still counts the movement that already happened.
-            total_distance += float(np.linalg.norm([self.x - old_x, self.y - old_y]))
+            disp = float(np.linalg.norm([self.x - old_x, self.y - old_y]))
+            total_distance += disp
+            # Charge only wander-step locomotion to wander_distance; the spike
+            # branch's step_size hop is excluded (it is engagement, not travel).
+            if not spiked:
+                wander_distance += disp
+
+            # Record any animation frames whose scheduled time has now elapsed.
+            if frames is not None:
+                while next_frame < len(frame_times) and t_new >= frame_times[next_frame]:
+                    _record_frame(frame_times[next_frame], state, spiked)
+                    next_frame += 1
 
             if t_new - t_current < MIN_DT and not spiked:
                 break
 
             t_current = t_new
+
+        # Emit any still-pending frames (e.g. a run that halted early on a MIN_DT
+        # stall) so the frame list always has the requested length.
+        if frames is not None:
+            while next_frame < len(frame_times):
+                _record_frame(frame_times[next_frame], state, False)
+                next_frame += 1
 
         return AgentHistory(
             t=np.array(times),       S=np.array(S_h),       V=np.array(V_h),
@@ -603,5 +694,7 @@ class Agent:
             fire_times=np.array(fire_times),
             I=np.array(I_h),         eng_weight=np.array(ew_h),
             harvested_utility=np.array(harvested_h),
-            total_distance=total_distance
+            total_distance=total_distance,
+            wander_distance=wander_distance,
+            frames=frames,
         )
