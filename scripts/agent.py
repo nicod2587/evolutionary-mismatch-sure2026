@@ -268,6 +268,56 @@ class Agent:
         high)."""
         return float(sum(self._patch_intensity(p, t) for p in self.world.patches))
 
+    def _drive_and_proximity(self, t: float) -> tuple:
+        """
+        Return (I, prox) in a single patch pass:
+
+          I     — total perceived information scent driving the neuron (same value
+                  as _total_I), value+novelty weighted.
+          prox  — spatial-proximity scalar in [0, 1]: max patch spatial envelope
+                  at the agent's position, normalised by the profile amplitude A.
+                  It is VALUE-INDEPENDENT (pure geometry), so prox ≈ 1 means "sitting
+                  on a patch" and prox ≈ 0 means "travelling between patches",
+                  REGARDLESS of whether that patch is depleted. This is the one
+                  cue that separates "on a worked-out patch" (I low because value
+                  drained) from "in transit" (I low because no patch is near) —
+                  the two states the old beta_PFC rule conflated.
+
+        Used by _odes to gate the opportunity-cost signal: accumulate while on a
+        patch, relax while travelling.
+        """
+        if self.world is None:
+            I = 0.0
+            best_env = 0.0
+            Aref = 1e-9
+            for s in self.stimuli:
+                I += s.eval_at(self.x, self.y, t)
+                env = s.envelope_at(s.r_from(self.x, self.y))
+                if env > best_env:
+                    best_env = env
+                if s.A > Aref:
+                    Aref = s.A
+            return float(I), float(min(1.0, best_env / Aref))
+
+        I = 0.0
+        best_env = 0.0
+        Aref = 1e-9
+        for patch in self.world.patches:
+            prof = patch.profile
+            if prof['A'] > Aref:
+                Aref = prof['A']
+            r = np.sqrt((self.x - patch.x) ** 2 + (self.y - patch.y) ** 2)
+            env = prof['A'] * np.exp(-((r ** 2) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
+            if env > best_env:
+                best_env = env
+            # perceived scent contribution (reuses the same envelope) — matches
+            # _patch_intensity exactly so I stays consistent with _total_I.
+            eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'])
+            if eff > 1e-7:
+                ripple = 1.0 + prof['alpha'] * np.sin(prof['omega'] * t - prof['k'] * r)
+                I += eff * env * ripple
+        return float(I), float(min(1.0, best_env / Aref))
+
     def _dominant_source(self, t: float) -> StimulusSource:
         """
         The strongest local source by perceived scent. World mode: pick the
@@ -407,12 +457,31 @@ class Agent:
         """
         p = self.p
         V, beta_PFC = y
-        I = self._total_I(t)
+        I, prox = self._drive_and_proximity(t)
         beta_eff = max(0.0, beta_PFC)
 
         dVdt = (1.0 / p['tau_v']) * (-(V - p['V_rest']) + I - beta_eff)
 
-        dbetadt = (1.0 / p['tau_pfc']) * (p['R_bar'] - I)
+        # beta_PFC = value-of-leaving / opportunity-cost signal. It accumulates the
+        # intake shortfall (R_bar − I) ONLY while the agent is physically on a patch
+        # (prox ≈ 1), and relaxes toward 0 while travelling between patches
+        # (prox ≈ 0).
+        #
+        # The old rule integrated (R_bar − I) unconditionally. In sparse ancestral
+        # worlds the agent spends most of its time in transit with I ≈ 0, so beta
+        # was driven to its cap and PINNED there — which zeroed the engagement
+        # weight, killed gradient-homing, and locked the agent out of ever reaching
+        # a patch to harvest (0 spikes on unlucky layouts). Gating by spatial
+        # proximity makes beta a true patch-level giving-up rule: it rises only when
+        # the CURRENT patch's honest intake has dropped below R_bar (depleted → leave)
+        # and forgets during travel so the agent arrives at the next patch fresh.
+        #
+        # The modern trap is unchanged: there the supernormal husk keeps I high even
+        # when drained, so (R_bar − I) stays negative and beta stays ≈ 0 whether or
+        # not prox is 1 — the agent still over-stays. The mismatch is untouched.
+        dbetadt = (1.0 / p['tau_pfc']) * (
+            prox * (p['R_bar'] - I) - (1.0 - prox) * beta_eff
+        )
         if beta_PFC <= 0.0 and dbetadt < 0.0:
             dbetadt = 0.0
         if beta_PFC >= self.beta_cap and dbetadt > 0.0:
