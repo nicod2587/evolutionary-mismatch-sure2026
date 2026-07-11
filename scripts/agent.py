@@ -33,6 +33,7 @@ single-source mode) stimuli are supplied explicitly and the patch/harvest/β_PFC
 machinery is bypassed.
 """
 
+import math
 import numpy as np
 from scipy.integrate import solve_ivp
 from dataclasses import dataclass
@@ -236,7 +237,10 @@ class Agent:
         wanders off — the emergent MVT giving-up.
         """
         z = (net_drive - self._engage_threshold) / self.engage_scale
-        return float(1.0 / (1.0 + np.exp(-z)))
+        # Guard against overflow in exp for very negative net_drive (disengaged).
+        if z < -700.0:
+            return 0.0
+        return 1.0 / (1.0 + math.exp(-z))
 
     # ── stimulus / scent ──────────────────────────────────────────────────────
 
@@ -257,10 +261,13 @@ class Agent:
         if eff <= 1e-7:
             return 0.0
         prof = patch.profile
-        r = np.sqrt((self.x - patch.x) ** 2 + (self.y - patch.y) ** 2)
-        env    = prof['A'] * np.exp(-((r ** 2) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
-        ripple = 1.0 + prof['alpha'] * np.sin(prof['omega'] * t - prof['k'] * r)
-        return float(eff * env * ripple)
+        # Scalar math.* is ~5-10x faster than np.* here; this is a per-patch hot path
+        # called 100k+ times per simulation (see profiling notes on _drive_and_proximity).
+        dx = self.x - patch.x; dy = self.y - patch.y
+        r = math.sqrt(dx * dx + dy * dy)
+        env    = prof['A'] * math.exp(-((r * r) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
+        ripple = 1.0 + prof['alpha'] * math.sin(prof['omega'] * t - prof['k'] * r)
+        return eff * env * ripple
 
     def _total_I_world(self, t: float) -> float:
         """World-mode hot path: sum perceived scent over patches, so an
@@ -302,21 +309,26 @@ class Agent:
         I = 0.0
         best_env = 0.0
         Aref = 1e-9
+        kappa = self.p['kappa']
+        # Hot path (top of the profile): scalar math.* instead of np.* — the ODE
+        # solver calls this ~20x per integration segment, 100k+ times per sim.
         for patch in self.world.patches:
             prof = patch.profile
             if prof['A'] > Aref:
                 Aref = prof['A']
-            r = np.sqrt((self.x - patch.x) ** 2 + (self.y - patch.y) ** 2)
-            env = prof['A'] * np.exp(-((r ** 2) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
+            dx = self.x - patch.x; dy = self.y - patch.y
+            r = math.sqrt(dx * dx + dy * dy)
+            env = prof['A'] * math.exp(-((r * r) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
             if env > best_env:
                 best_env = env
             # perceived scent contribution (reuses the same envelope) — matches
             # _patch_intensity exactly so I stays consistent with _total_I.
-            eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'])
+            eff = patch.fade_in_factor(t) * patch.scent(kappa)
             if eff > 1e-7:
-                ripple = 1.0 + prof['alpha'] * np.sin(prof['omega'] * t - prof['k'] * r)
+                ripple = 1.0 + prof['alpha'] * math.sin(prof['omega'] * t - prof['k'] * r)
                 I += eff * env * ripple
-        return float(I), float(min(1.0, best_env / Aref))
+        prox = best_env / Aref
+        return I, (1.0 if prox > 1.0 else prox)
 
     def _dominant_source(self, t: float) -> StimulusSource:
         """
