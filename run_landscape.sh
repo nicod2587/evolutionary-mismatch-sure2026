@@ -3,7 +3,11 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32       # 32 cores for the parallel res^3 genome grid
 #SBATCH --mem=16G                # Request 16 Gigabytes of memory
-#SBATCH --time=00:30:00          # res=12 -> 1728 genomes x 6 worlds; ~5-15 min on 32 cores
+#SBATCH --time=01:30:00          # res=12 -> 1728 genomes x 6 worlds; ~55 min on 32 cores.
+                                 # The old 30-min cap killed the run at 946/1728, so give it
+                                 # headroom. genome_landscape now checkpoints to
+                                 # fitness_cube_partial.npz, so a kill is resumable anyway:
+                                 # just resubmit and it continues from the last saved genome.
 #SBATCH --job-name=ev_cube       # Name of your job
 #SBATCH --output=cube_output.log # Where the live per-genome progress + figures log
 
