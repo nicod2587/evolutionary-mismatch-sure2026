@@ -257,7 +257,8 @@ class Agent:
         on the novelty term (patch.scent(κ)), times the fade-in ramp, the spatial
         envelope, and the temporal ripple.
         """
-        eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'])
+        eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'],
+                                                    self.world.obs_noise_at(patch, t))
         if eff <= 1e-7:
             return 0.0
         prof = patch.profile
@@ -323,7 +324,7 @@ class Agent:
                 best_env = env
             # perceived scent contribution (reuses the same envelope) — matches
             # _patch_intensity exactly so I stays consistent with _total_I.
-            eff = patch.fade_in_factor(t) * patch.scent(kappa)
+            eff = patch.fade_in_factor(t) * patch.scent(kappa, self.world.obs_noise_at(patch, t))
             if eff > 1e-7:
                 ripple = 1.0 + prof['alpha'] * math.sin(prof['omega'] * t - prof['k'] * r)
                 I += eff * env * ripple
