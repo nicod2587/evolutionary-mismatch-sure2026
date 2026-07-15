@@ -23,3 +23,6 @@ Thumbs.db
 ~$*.docx
 # HPC/SLURM job logs (regenerable run output)
 *.log
+
+# accidental in-repo clones / worktrees (keep results known-fresh)
+SURE_*/
