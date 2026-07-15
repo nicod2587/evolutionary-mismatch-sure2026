@@ -8,7 +8,12 @@
                                  # ceiling. genome_landscape checkpoints to fitness_cube_partial.npz,
                                  # so a kill is resumable: just resubmit and it continues.
 #SBATCH --job-name=ev_cube       # Name of your job
-#SBATCH --output=cube_output.log # Where the live per-genome progress + figures log
+#SBATCH --output=cube_run_%j.log # Where the live per-genome progress + figures log (%j = job id,
+                                 # unique per submission so logs never overwrite/race)
+#SBATCH --export=ALL             # propagate TRAIN_MISMATCH / OBS_NOISE from the submitting shell so
+                                 # the cube is scored on the SAME landscape the GA trained on (some
+                                 # site sbatch defaults are --export=NONE, which would silently drop
+                                 # them and rebuild the ancestral-only cube). Do not remove.
 
 # 1. Clean and load the system core Python modules (same as run_ga.sh / run_sweep.sh)
 module purge
