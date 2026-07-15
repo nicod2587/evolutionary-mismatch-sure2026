@@ -35,7 +35,13 @@ source hpc_env/bin/activate
 #
 #    --res 12   : 12^3 = 1728 grid genomes (raise for finer landscape, costs ~res^3).
 #    Scored on the GA's fixed evaluation seeds so the cube IS the surface the GA climbed.
-python -u -m scripts.genome_landscape --res 12 --n_jobs 32 --run_dir ga_results
+# Eval config MATCHED to the GA (hpc_run.py: T_EVAL_TRAIN=30000, N_EVAL_WORLDS=12,
+# MAX_SPIKES=4000) so the cube is the EXACT surface the GA climbed -> the evolved
+# champion (red diamond) lands on the grid max (gold diamond). n_worlds must match so
+# ga_fixed_seeds() draws the identical world-seed SET the GA averaged over; a different
+# t_eval/max_spikes shifts fitness values and knocks the champion off the optimum.
+python -u -m scripts.genome_landscape --res 12 --n_jobs 32 --run_dir ga_results \
+       --t_eval 30000 --n_worlds 12 --max_spikes 4000
 
 # ── Bounds question (already handled) ────────────────────────────────────────
 # GENOME_BOUNDS has been WIDENED (R_bar 0.25-25, kappa 0.1-6, tau_pfc 20-500), and
