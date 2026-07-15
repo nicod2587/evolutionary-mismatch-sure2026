@@ -183,8 +183,6 @@ class Agent:
         # Grounded genome traits with safe fallbacks (so a bare params dict runs).
         self.p.setdefault('R_bar', 6.0)     # background-richness prior (drive units)
         self.p.setdefault('kappa', 1.0)     # curiosity gain on the novelty term
-        self.p.setdefault('freshness_budget', 150.0)  # habituation rate: samples over which a
-                                            # patch's novelty (incl. a husk's) decays 1->0
 
         if refractory_drop <= 0:
             raise ValueError("refractory_drop must be > 0.")
@@ -260,8 +258,7 @@ class Agent:
         envelope, and the temporal ripple.
         """
         eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'],
-                                                    self.world.obs_noise_at(patch, t),
-                                                    self.p['freshness_budget'])
+                                                    self.world.obs_noise_at(patch, t))
         if eff <= 1e-7:
             return 0.0
         prof = patch.profile
@@ -314,7 +311,6 @@ class Agent:
         best_env = 0.0
         Aref = 1e-9
         kappa = self.p['kappa']
-        fresh_b = self.p['freshness_budget']
         # Hot path (top of the profile): scalar math.* instead of np.* — the ODE
         # solver calls this ~20x per integration segment, 100k+ times per sim.
         for patch in self.world.patches:
@@ -328,7 +324,7 @@ class Agent:
                 best_env = env
             # perceived scent contribution (reuses the same envelope) — matches
             # _patch_intensity exactly so I stays consistent with _total_I.
-            eff = patch.fade_in_factor(t) * patch.scent(kappa, self.world.obs_noise_at(patch, t), fresh_b)
+            eff = patch.fade_in_factor(t) * patch.scent(kappa, self.world.obs_noise_at(patch, t))
             if eff > 1e-7:
                 ripple = 1.0 + prof['alpha'] * math.sin(prof['omega'] * t - prof['k'] * r)
                 I += eff * env * ripple
