@@ -40,8 +40,15 @@ source hpc_env/bin/activate
 # champion (red diamond) lands on the grid max (gold diamond). n_worlds must match so
 # ga_fixed_seeds() draws the identical world-seed SET the GA averaged over; a different
 # t_eval/max_spikes shifts fitness values and knocks the champion off the optimum.
+#
+# LANDSCAPE passed as EXPLICIT CLI FLAGS, not via env: an earlier run's cube came out at
+# mismatch=0/obs_noise=0 because sbatch did not propagate the exported TRAIN_MISMATCH/
+# OBS_NOISE to this job (--export=ALL was insufficient in practice). The ${VAR:-default}
+# fallback bakes in the DECIDED landscape (0.10 / 0.1) so `sbatch run_landscape.sh` is
+# correct even with no env at all; export TRAIN_MISMATCH/OBS_NOISE to override for a ladder level.
 python -u -m scripts.genome_landscape --res 12 --n_jobs 32 --run_dir ga_results \
-       --t_eval 30000 --n_worlds 12 --max_spikes 4000
+       --t_eval 30000 --n_worlds 12 --max_spikes 4000 \
+       --mismatch_index "${TRAIN_MISMATCH:-0.10}" --obs_noise "${OBS_NOISE:-0.1}"
 
 # ── Bounds question (already handled) ────────────────────────────────────────
 # GENOME_BOUNDS has been WIDENED (R_bar 0.25-25, kappa 0.1-6, tau_pfc 20-500), and
