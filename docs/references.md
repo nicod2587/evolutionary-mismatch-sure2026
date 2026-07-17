@@ -34,10 +34,21 @@ Each entry notes what it grounds in the model.
    — *Noted counter-reading of dACC; we take the Kolling/Hayden foraging-value
    interpretation.*
 
-7. **Wang, M. Z., & Hayden, B. Y. (2019).** Monkeys are curious about
+7. **Monosov, I. E. (2024).** Curiosity: primate neural circuits for novelty and
+   information seeking. *Nature Reviews Neuroscience, 25*, 195–208.
+   — *PRIMARY grounding for κ: primate neural circuits that drive exploration of
+   novel stimuli for their own sake, independent of value. The curiosity-gain
+   drive the modern husk exploits.*
+
+7b. **Bromberg-Martin, E. S., & Monosov, I. E. (2020).** Neural circuitry of
+   information seeking. *Current Opinion in Behavioral Sciences, 35*, 62–70.
+   — *Circuits that value information distinctly from primary reward; supports κ
+   as a separable non-instrumental drive.*
+
+7c. **Wang, M. Z., & Hayden, B. Y. (2019).** Monkeys are curious about
    counterfactual outcomes. *Cognition, 189*, 1–10.
-   — *Primates pay for non-instrumental information; curiosity scales with
-   Shannon entropy; the κ (curiosity-gain) drive that is exploited.*
+   — *(Secondary κ support.) Primates pay for non-instrumental information;
+   curiosity scales with Shannon entropy.*
 
 8. **Lim, V. P. Y., Yong, J. C., & Tan, Y. W. (2025).** Artificial intelligence,
    fundamental motives, and evolutionary mismatch. *Evolutionary Behavioral
@@ -48,15 +59,44 @@ Each entry notes what it grounds in the model.
    non-adaptive in a modern/manipulated environment; the "glowing husk" and the
    mismatch itself.*
 
-9. **Li, N. P., van Vugt, M., & Colarelli, S. M. (2018).** The evolutionary
+9. **De Block, A., & Du Laing, B. (2010).** Amusing ourselves to death?
+   Superstimuli and the evolutionary social sciences. *Philosophical Psychology,
+   23*(6), 821–843.
+   — *Academic grounding for the supernormal-stimulus (Tinbergen) lineage applied
+   to modern environments: exaggerated cues hijack evolved response rules. The
+   conceptual basis for the h = 1 − mismatch scent-decoupling.*
+
+10. **Li, N. P., van Vugt, M., & Colarelli, S. M. (2018).** The evolutionary
    mismatch hypothesis: implications for psychological science. *Current
    Directions in Psychological Science, 27*(1), 38–44.
    — *The general evolutionary-mismatch framing: adaptations calibrated to
    ancestral environments misfire in novel modern ones. Grounds the paper's
    central thesis at the level above the specific foraging mechanism.*
 
+### Prefrontal intrinsic timescale (grounds τ_pfc)
+
+The opportunity-cost accumulation timescale τ_pfc is not identified by selection
+(a flat direction), so it is fixed at 256 (≈256 ms, given the model's membrane
+constant τ_v = 10 sets 1 sim-unit ≈ 1 ms) — a value inside the measured PFC/ACC
+intrinsic-timescale range.
+
+11. **Murray, J. D., Bernacchia, A., Freedman, D. J., Romo, R., et al. (2014).**
+   A hierarchy of intrinsic timescales across primate cortex. *Nature
+   Neuroscience, 17*(12), 1661–1663.
+   — *The anchor: dACC/PFC are among the slowest cortical areas (upper hundreds
+   of ms); places τ_pfc ≈ 256 ms in range.*
+
+12. **Li, S., & Wang, X.-J. (2022).** Hierarchical timescales in the neocortex:
+   mathematical mechanism and biological insights. *PNAS, 119*(6), e2110274119.
+   — *Cortical intrinsic timescales span tens to hundreds of ms; the bracket
+   τ_pfc sits within.*
+
 ---
 
-*Note: entry 8's author/year is now confirmed (update the abstract text to
-match). The other volume/page details are standard for these well-known papers
-but worth a final cross-check against a reference manager before submission.*
+*Notes: (1) entry 8's author/year is confirmed — update the abstract text from
+"Lim & Tan 2024" to "Lim, Yong & Tan 2025". (2) On McNamara & Dall 2010: their
+thesis is that information value is NON-negative; our model's net-negative value
+comes from adding an explicit acquisition cost c — state this as an extension,
+not a restatement, so the reading is precise. (3) Volume/page details are
+standard for these well-known papers but worth a final cross-check against a
+reference manager before submission.*
