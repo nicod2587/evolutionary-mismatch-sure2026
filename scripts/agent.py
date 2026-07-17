@@ -1,38 +1,32 @@
 """
-agent.py — Information-foraging agent with a minimal, grounded 2-state neuron.
+agent.py — An information-foraging agent with a minimal 2-state neuron.
 
-The agent forages for information in the patch world (natural_world.py). Its neuron
-is a single rise-to-threshold membrane `V` (leaky integrate-and-fire) gated by one
-opportunity-cost signal `β_PFC`. Every component is cited:
+The agent forages for information across patches (natural_world.py). Its brain is
+two numbers:
 
-  * Drive = information SCENT (Pirolli & Card 1999). The agent perceives a patch
-    through its proximal scent, not its true value; scent = value_fraction +
-    w_nov·κ·novelty, where novelty = h·(value_fraction·freshness) + (1−h)·PATCH_NOVELTY
-    and h = 1 − mismatch_index. Ancestrally (h=1) novelty tracks real value, so the
-    scent fades as a patch drains; modernly (h→0) it stays high on a spent husk
-    (Lim, Yong & Tan 2025). κ = curiosity_gain weights the novelty term
-    (Wang & Hayden 2019). See natural_world.Patch.scent for the full rationale.
-  * V — leaky integrate-and-fire membrane (rise-to-threshold), driven by scent.
-    A spike harvests the dominant patch's real information value (McNamara & Dall
-    2010) and resets V. This is the primate dACC foraging neuron of Hayden, Pearson
-    & Platt 2011.
-  * β_PFC — the executive VALUE-OF-LEAVING / opportunity-cost signal (Kolling,
-    Behrens, Mars & Rushworth 2012). It accumulates the shortfall between the
-    current patch's perceived intake and the agent's evolved background-richness
-    prior R̄:  dβ/dt = (R̄ − I)/τ_pfc.  When the patch underperforms R̄, β rises,
-    suppresses V, and the agent stops firing and wanders off — an emergent Marginal
-    Value Theorem giving-up rule (Charnov 1976). (The debate over whether dACC
-    encodes foraging value vs. choice difficulty — Shenhav et al. 2014 — is noted;
-    we take the Kolling/Hayden foraging-value reading.)
+  V     — a leaky integrate-and-fire membrane. Scent drives it up; when it crosses
+          threshold it spikes, harvests real value from the patch, and resets.
+          (The primate dACC foraging neuron; Hayden et al. 2011.)
+  β_PFC — an opportunity-cost "time to leave" signal. It accumulates how far the
+          patch falls short of the agent's evolved richness prior R̄:
+          dβ/dt = (R̄ − I)/τ_pfc. When a patch underperforms, β rises, suppresses
+          V, and the agent wanders off — an emergent give-up rule.
+          (Kolling et al. 2012 https://www.science.org/doi/10.1126/science.1216930;
+           Charnov's Marginal Value Theorem, 1976
+           https://www.sciencedirect.com/science/article/abs/pii/004058097690040X)
 
-The evolutionary mismatch lives entirely in β_PFC: modern scent stays high so β
-never rises (no leaving), and R̄ evolved under ancestral scarcity is too low a bar.
-Executive control is present and working — it just runs an ancestral computation on
-corrupted (supernormal) inputs. Not a willpower failure; a mismatch.
+Key twist: the agent moves on SCENT, not real value. Ancestrally, scent fades as a
+patch drains, so a spent patch looks spent. In the modern regime scent stays high
+on a worked-out husk (a supernormal cue; Lim & Tan 2024
+https://link.springer.com/article/10.1007/s40806-024-00398-z), so nothing pulls
+the agent off it — only its own β_PFC can. See natural_world.Patch.scent for the
+formula.
 
-Pass world=AncestralWorld(...) to run in the patch world. With world=None (legacy
-single-source mode) stimuli are supplied explicitly and the patch/harvest/β_PFC
-machinery is bypassed.
+That is the whole mismatch: executive control works fine, but it runs an ancestral
+computation on modern, decoupled inputs. Not weak willpower — a mismatch.
+
+Usage: pass world=AncestralWorld(...) to forage. world=None is a legacy
+single-source mode that bypasses the patch/harvest/β_PFC machinery.
 """
 
 import math
