@@ -101,7 +101,7 @@ Figures live in `ga_results/`
   - `plot_*.py`, `analysis.py`, `animation.py` — figure generation
   - `run_champion_sweep.py` — hero figure from a saved `champion.pkl`
 - `hpc_run.py` — production GA run entry point (used on Stanage via `run_ga.sh`)
-- `hpc_sweep.py` / `interrupt.py` — rebuild figures from checkpoints (no re-evolution)
+- `hpc_sweep.py` — rebuild figures from checkpoints (no re-evolution)
 - `run_all.sh` and `run_*.sh` — SLURM job scripts (pipeline, cube, sweep, ladder)
 - `ga_results/` — evolved champion, sweep data, figures
 - `Evolutionary_Mismatch_Presentation.ipynb` — the walkthrough notebook
@@ -114,7 +114,7 @@ Whole pipeline on the HPC (submit from the Stanage login node, then log off):
 
 ```bash
 export TRAIN_MISMATCH=0.10; export OBS_NOISE=0.1
-bash run_all.sh          # preflight gate → GA → rebuild+sweep → fitness cube
+bash run_all.sh          # GA → rebuild+sweep → fitness cube (runs in parallel)
 ```
 
 A quick local GA run:
@@ -126,7 +126,8 @@ python -m scripts.genetic_algorithm --pop_size 50 --n_gens 30 --n_jobs 4
 Regenerate figures from existing results (no evolution):
 
 ```bash
-python -m scripts.plot_marginal_slices                       # 2D R̄×κ landscapes
+python -m scripts.plot_rk_slice --tau 256 --res 60 --n_worlds 8 \
+       --mismatch_index 0.10 --obs_noise 0.1                 # 2D R̄×κ landscape slice
 python -m scripts.genome_landscape --load ga_results/fitness_cube.npz \
        --run_dir ga_results --out_dir ga_results             # replot the cube
 ```
