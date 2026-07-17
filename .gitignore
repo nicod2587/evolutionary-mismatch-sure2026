@@ -26,3 +26,6 @@ Thumbs.db
 
 # accidental in-repo clones / worktrees (keep results known-fresh)
 SURE_*/
+
+# regenerable GA landscape checkpoints (resumable intermediate state, not results)
+**/fitness_cube_partial.npz

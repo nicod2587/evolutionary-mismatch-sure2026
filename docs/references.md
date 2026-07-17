@@ -41,16 +41,22 @@ Each entry notes what it grounds in the model.
 
 8. **Lim, V. P. Y., Yong, J. C., & Tan, Y. W. (2025).** Artificial intelligence,
    fundamental motives, and evolutionary mismatch. *Evolutionary Behavioral
-   Sciences.* *(Please confirm — the abstract currently lists this as "Lim &
-   Tan 2024"; a search suggests the AI/mismatch paper is Lim, Yong & Tan 2025
-   in Evolutionary Behavioral Sciences. Verify authors/year against the copy you
-   cited.)*
+   Sciences.* *(Confirmed 2026-07-17: published 2025 in Evolutionary Behavioral
+   Sciences — the abstract text still reads "Lim and Tan, 2024" and should be
+   updated to Lim, Yong & Tan 2025 before final submission.)*
    — *Supernormal stimuli: ancestrally-adaptive processing rules become
    non-adaptive in a modern/manipulated environment; the "glowing husk" and the
    mismatch itself.*
 
+9. **Li, N. P., van Vugt, M., & Colarelli, S. M. (2018).** The evolutionary
+   mismatch hypothesis: implications for psychological science. *Current
+   Directions in Psychological Science, 27*(1), 38–44.
+   — *The general evolutionary-mismatch framing: adaptations calibrated to
+   ancestral environments misfire in novel modern ones. Grounds the paper's
+   central thesis at the level above the specific foraging mechanism.*
+
 ---
 
-*Note: entry 8 needs confirmation (see above). The other volume/page details
-are standard for these well-known papers but worth a final cross-check against a
-reference manager before submission.*
+*Note: entry 8's author/year is now confirmed (update the abstract text to
+match). The other volume/page details are standard for these well-known papers
+but worth a final cross-check against a reference manager before submission.*
