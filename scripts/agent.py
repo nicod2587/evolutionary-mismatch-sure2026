@@ -6,10 +6,12 @@ is a single rise-to-threshold membrane `V` (leaky integrate-and-fire) gated by o
 opportunity-cost signal `β_PFC`. Every component is cited:
 
   * Drive = information SCENT (Pirolli & Card 1999). The agent perceives a patch
-    through its proximal scent, not its true value; scent = φ·value_fraction +
-    (1-φ)·κ·novelty, so ancestrally (φ=1) it tracks real value and modernly (φ→0)
-    it stays high on a spent husk (Lim & Tan 2024). κ = curiosity_gain weights the
-    novelty term (Wang & Hayden 2019).
+    through its proximal scent, not its true value; scent = value_fraction +
+    w_nov·κ·novelty, where novelty = h·(value_fraction·freshness) + (1−h)·PATCH_NOVELTY
+    and h = 1 − mismatch_index. Ancestrally (h=1) novelty tracks real value, so the
+    scent fades as a patch drains; modernly (h→0) it stays high on a spent husk
+    (Lim, Yong & Tan 2025). κ = curiosity_gain weights the novelty term
+    (Wang & Hayden 2019). See natural_world.Patch.scent for the full rationale.
   * V — leaky integrate-and-fire membrane (rise-to-threshold), driven by scent.
     A spike harvests the dominant patch's real information value (McNamara & Dall
     2010) and resets V. This is the primate dACC foraging neuron of Hayden, Pearson
@@ -253,7 +255,7 @@ class Agent:
     def _patch_intensity(self, patch: "Patch", t: float) -> float:
         """
         Perceived scent I(r,t) this agent gets from `patch` at its current position.
-        The perceptual value is the fidelity mix with the agent's curiosity gain κ
+        The perceptual value is patch.scent evaluated with the agent's curiosity gain κ
         on the novelty term (patch.scent(κ)), times the fade-in ramp, the spatial
         envelope, and the temporal ripple.
         """
