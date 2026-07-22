@@ -62,7 +62,6 @@ def render(out_path='ga_results/poster_agent_single_patch.png', seed=8, t_end=40
     ax_traj.scatter([h.x[0]], [h.y[0]], s=42, facecolor='white', edgecolor='k', lw=1.0, zorder=5)
     ax_traj.annotate('start', (h.x[0], h.y[0]), textcoords='offset points', xytext=(7, 6),
                      fontsize=8, color='white')
-    ax_traj.scatter([0.0], [0.0], s=90, facecolor='none', edgecolor='#5ec8f5', lw=1.3, zorder=4)
     ax_traj.set_xlim(extent[0], extent[1]); ax_traj.set_ylim(extent[2], extent[3])
     ax_traj.set_aspect('equal')
     ax_traj.set_xticks([]); ax_traj.set_yticks([])
