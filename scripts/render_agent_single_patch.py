@@ -10,7 +10,7 @@ panel are actually about.
 Single patch is pinned to the world centre; the agent starts off-centre so the
 "wander -> engage -> home in" shape reads as one continuous blue line.
 
-Saves ga_results/poster_agent_single_patch.png.
+Saves results/poster_agent_single_patch.png.
 
 Usage:
   python -m scripts.render_agent_single_patch --seed 8
@@ -23,17 +23,17 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from scripts.natural_world import AncestralWorld
-from scripts.genetic_algorithm import Genome
+from scripts.fitness import Genome
 from scripts.model_dynamics import params as base_params
 from scripts.agent import Agent
 
 CHAMPION = np.array([14.7, 4.33])   # ancestral champion (mean top-10% in box @ mm=0.10);
-                                     # tau_pfc = genetic_algorithm.TAU_PFC_FIXED
+                                     # tau_pfc = fitness.TAU_PFC_FIXED
 START = (-620.0, -620.0)           # bottom-left corner: outside the scent gradient's reach
                                     # (sigma=110), so the early leg is genuine random walk
 
 
-def render(out_path='ga_results/poster_agent_single_patch.png', seed=8, t_end=4000.0,
+def render(out_path='results/poster_agent_single_patch.png', seed=8, t_end=4000.0,
            mismatch_index=0.10):
     g = Genome.from_array(CHAMPION)
     p = g.to_params(base_params)
@@ -96,7 +96,7 @@ def render(out_path='ga_results/poster_agent_single_patch.png', seed=8, t_end=40
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--out', default='ga_results/poster_agent_single_patch.png')
+    ap.add_argument('--out', default='results/poster_agent_single_patch.png')
     ap.add_argument('--seed', type=int, default=8)
     ap.add_argument('--t_end', type=float, default=4000.0)
     ap.add_argument('--mismatch_index', type=float, default=0.10)

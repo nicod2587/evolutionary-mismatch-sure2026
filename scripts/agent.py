@@ -8,7 +8,7 @@ two numbers:
           threshold it spikes, harvests real value from the patch, and resets.
           (The primate dACC foraging neuron; Hayden et al. 2011.)
   β_PFC — an opportunity-cost "time to leave" signal. It accumulates how far the
-          patch falls short of the agent's evolved richness prior R̄:
+          patch falls short of the agent's heritable richness prior R̄:
           dβ/dt = (R̄ − I)/τ_pfc. When a patch underperforms, β rises, suppresses
           V, and the agent wanders off — an emergent give-up rule.
           (Kolling et al. 2012 https://www.science.org/doi/10.1126/science.1216930;
@@ -141,7 +141,7 @@ class Agent:
             of integrating without bound.
 
         The genome supplies three neural traits via `params`/`genome` (see
-        genetic_algorithm.GENOME_KEYS): R_bar (background-richness prior), kappa
+        fitness.Genome): R_bar (background-richness prior), kappa
         (curiosity gain on novelty), tau_pfc (opportunity-cost accumulation rate).
         """
         # ── world vs stimuli ──────────────────────────────────────────────────
@@ -509,7 +509,7 @@ class Agent:
         chemotaxis-wanders. The world clock and respawns are updated inline.
 
         record_frames > 0 captures that many evenly-spaced snapshots into
-        AgentHistory.frames for the animation (off by default so the GA hot path
+        AgentHistory.frames for the animation (off by default so landscape scoring
         pays nothing).
         """
         t_start, t_end = t_span

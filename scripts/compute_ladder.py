@@ -1,17 +1,16 @@
-"""
-compute_ladder.py — recompute the Step-2 R_bar x kappa slice at each mismatch rung.
+﻿"""
+compute_ladder.py - compute the R_bar x kappa fitness landscape at each mismatch rung.
 
 Produces one ladder_stack.npz holding a landscape F[rung] per mismatch level, all
-scored with the IDENTICAL objective/seeds/tau as the Step-2 definitive slice
-(scripts.plot_rk_slice) — only mismatch_index varies across rungs. This is the data
-behind the mismatch-ladder GIF. It does NOT re-evolve anything.
+scored with the identical objective/seeds/tau (scripts.fitness) - only mismatch_index
+varies across rungs. This is the data behind every poster figure.
 
 Resumable: writes ladder_stack_partial.npz after each rung; re-running skips done rungs.
 
-Run (HPC, multi-hour — one Step-2 slice per rung):
+Run (HPC, multi-hour - one landscape per rung):
   python -u -m scripts.compute_ladder --res 60 --n_worlds 8 --t_eval 25000 \
          --n_jobs 32 --tau 256 --r_max 200 --k_max 50 --obs_noise 0.1 \
-         --out_dir ga_results/ladder
+         --out_dir results/ladder
 """
 import argparse
 import os
@@ -20,8 +19,7 @@ import time
 import numpy as np
 
 from scripts.model_dynamics import params as base_params
-from scripts.genetic_algorithm import _evaluate_one
-from scripts.genome_landscape import ga_fixed_seeds
+from scripts.fitness import evaluate_genome, eval_seeds
 
 DEFAULT_RUNGS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.50, 1.0]
 
@@ -29,7 +27,7 @@ DEFAULT_RUNGS = [0.10, 0.15, 0.20, 0.25, 0.30, 0.50, 1.0]
 def _score_one_landscape(r_axis, k_axis, tau, seeds, t_eval, max_spikes,
                          mismatch_index, obs_noise, obs_noise_tau, n_jobs):
     """Score a single res x res R_bar x kappa grid at one mismatch level.
-    Job tuple is identical to plot_rk_slice.main's."""
+"""
     world_kwargs = {'mismatch_index': mismatch_index,
                     'obs_noise': obs_noise, 'obs_noise_tau': obs_noise_tau}
     agent_kwargs = {'wander_speed': 4.0, 'step_size': 5.0}
@@ -37,17 +35,17 @@ def _score_one_landscape(r_axis, k_axis, tau, seeds, t_eval, max_spikes,
     jobs = []
     for ir in r_axis:
         for ik in k_axis:
-            g = np.array([ir, ik, tau])
+            g = np.array([ir, ik])
             jobs.append((g, base_params, seeds, t_eval, max_spikes,
-                         fitness_weights, agent_kwargs, world_kwargs, 0))
+                         fitness_weights, agent_kwargs, world_kwargs))
     flat = np.full(len(jobs), np.nan)
     if n_jobs == 1:
         for i, job in enumerate(jobs):
-            flat[i] = _evaluate_one(job)
+            flat[i] = evaluate_genome(job)
     else:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         with ProcessPoolExecutor(max_workers=n_jobs) as pool:
-            futs = {pool.submit(_evaluate_one, job): i for i, job in enumerate(jobs)}
+            futs = {pool.submit(evaluate_genome, job): i for i, job in enumerate(jobs)}
             for fut in as_completed(futs):
                 flat[futs[fut]] = fut.result()
     return flat.reshape(len(r_axis), len(k_axis))
@@ -59,7 +57,7 @@ def compute_ladder(r_min, r_max, k_min, k_max, res, rungs, tau, n_worlds,
     os.makedirs(out_dir, exist_ok=True)
     r_axis = np.linspace(r_min, r_max, res)
     k_axis = np.linspace(k_min, k_max, res)
-    seeds = ga_fixed_seeds(n_worlds, seed_base)
+    seeds = eval_seeds(n_worlds, seed_base)
     rungs = list(rungs)
     n = len(rungs)
 
@@ -125,14 +123,14 @@ def main():
     p.add_argument('--n_jobs', type=int, default=1)
     p.add_argument('--tau', type=float, default=256.0)
     p.add_argument('--r_min', type=float, default=0.0)
-    p.add_argument('--r_max', type=float, default=200.0)   # Step-2 default; override if WIDENed
+    p.add_argument('--r_max', type=float, default=200.0)
     p.add_argument('--k_min', type=float, default=0.1)
     p.add_argument('--k_max', type=float, default=50.0)
     p.add_argument('--obs_noise', type=float, default=0.1)
     p.add_argument('--obs_noise_tau', type=float, default=50.0)
     p.add_argument('--seed_base', type=int, default=20260709)
     p.add_argument('--rungs', type=float, nargs='+', default=DEFAULT_RUNGS)
-    p.add_argument('--out_dir', type=str, default='ga_results/ladder')
+    p.add_argument('--out_dir', type=str, default='results/ladder')
     args = p.parse_args()
     print(f"ladder: rungs={args.rungs} res={args.res} tau={args.tau} "
           f"R_bar[{args.r_min},{args.r_max}] kappa[{args.k_min},{args.k_max}]", flush=True)

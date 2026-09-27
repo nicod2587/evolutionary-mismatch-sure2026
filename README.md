@@ -1,149 +1,56 @@
-# Modelling Evolutionary Mismatch: Information Foraging and Cost-Free Novelty
+# Modelling Evolutionary Mismatch: Information Foraging and Information-Free Novelty
 
-Nicholas Dunajski, James Marshall — Sheffield Undergraduate Research Experience
-(SURE), University of Sheffield. Compute on the Stanage HPC.
+Nicholas Dunajski · supervised by James A. R. Marshall (University of Sheffield) · SURE 2026
 
-## Overview
+Why is a social media feed so hard to put down? A forager's patch-leaving rule (the
+marginal value theorem) assumes novelty signals value. This project maps how well every
+forager strategy performs as the world slides from **ancestral** (novelty tracks value) to
+**modern** (novelty carries no information), and shows that mismatch creates a ceiling on
+curiosity that falls as the world modernises.
 
-This project builds an information-foraging model to test whether populations
-that evolve under an **ancestral** environment — where information is rare,
-costly to obtain, but of high fitness value — behave suboptimally when moved,
-unchanged, into a **modern** analogue where information is abundant, cheap, and
-rarely fitness-enhancing.
+The final output is the poster: [docs/poster/Nico_Poster/main.tex](docs/poster/Nico_Poster/main.tex)
+(PDF: [docs/poster/poster_draft_v4.pdf](docs/poster/poster_draft_v4.pdf)),
+with the abstract in [docs/poster/abstract.txt](docs/poster/abstract.txt).
 
-A forager is a minimal **two-state neuron** inspired by the primate foraging
-circuit, evolved with a genetic algorithm against a Marginal Value Theorem (MVT)
-patch-foraging world. The model asks why organisms persist in foraging for
-low-value information, and whether compulsive engagement (e.g. compulsive
-internet browsing) is better read as an **evolutionary mismatch** — ancestral
-circuits meeting a manipulated modern environment that exploits **supernormal
-stimuli** — than as a failure of willpower.
+## The model
 
-See [abstract.txt](abstract.txt) for the research abstract and
-[WRITEUP_traits_and_results.md](WRITEUP_traits_and_results.md) for the current,
-canonical results and their interpretation.
-
-## The model in one screen
-
-A single forager is a 2-state neuron `[V, β_PFC]` moving through a field of
-information patches:
+One two-state neuron per forager: membrane `V` and opportunity-cost signal `β`.
 
 ```
-dV/dt      = (1/τ_v)  · [ −(V − V_rest) + I − β_eff ]          membrane potential
-dβ_PFC/dt  = (1/τ_pfc)· [ prox·(R̄ − I) − (1−prox)·β_eff ]     opportunity-cost signal
+dV/dt = (scent − (V − V_rest) − β) / τ_V
+dβ/dt = (prox·(R̄ − scent) − (1 − prox)·β) / τ_β
+scent   = value + κ · novelty
+novelty = (1 − m)·(value × freshness) + m        m = mismatch (0 ancestral, 1 modern)
 ```
 
-- `V` — a leaky integrate-and-fire membrane (Hayden et al. 2011). Each threshold
-  crossing is a **spike** = one act of sampling; a spike harvests real value.
-- `β_PFC` — the value-of-leaving / opportunity-cost signal (Kolling et al. 2012).
-  On a patch it accumulates the shortfall `(R̄ − I)`; when it wins it suppresses
-  `V` and the agent leaves — the MVT (Charnov 1976) as a neural signal.
-- perceived **scent** `I` blends honest value with a novelty cue scaled by
-  curiosity `κ`. A single lever, `mismatch_index ∈ [0,1]`, slides novelty from
-  *tracking real value* (ancestral) to a *constant regardless of value* (modern)
-  — the supernormal-stimulus mechanism.
+Two heritable traits: `R̄` (estimated average value of the environment) and `κ` (how much
+novelty adds to perceived value). `τ_β` is fixed at 256. Fitness = value harvested per unit
+time − 0.3 × time spent engaged on patches.
 
-**Three heritable traits** (the genome), with bounds:
+## Code
 
-| trait | symbol | bounds | role | grounding |
-|---|---|---|---|---|
-| richness prior | `R_bar` | (0.25, 25) | MVT give-up threshold — the mismatch lever | Charnov 1976; Kolling 2012 |
-| curiosity gain | `kappa` | (0.1, 15) | novelty amplification (the exploited drive) | Wang & Hayden 2019 |
-| patience | `tau_pfc` | (20, 500) | timescale of the leave signal | Hayden 2011 |
+`scripts/`
+- `agent.py`, `natural_world.py`, `model_dynamics.py`, `constants.py`, `stimulus.py` — the model
+- `fitness.py` — the fitness objective scored at each landscape cell
+- `compute_ladder.py` — computes the R̄ × κ fitness landscape at each mismatch level
+- `render_poster_hero.py` — landscape filmstrip (poster: `colour_plots.png`)
+- `render_fig2.py` — mismatch-load figure (poster: `mismatch load.png`)
+- `render_agent_single_patch.py` — one agent on one patch (poster: `plots.png`)
 
-**Fitness** (both terms from McNamara & Dall 2010 / Charnov 1976):
+`results/`
+- `ladder/ladder_stack.npz` — the computed landscapes (11 mismatch levels, 60 × 60 grid)
+- `fig2_data.npz` — cached data for the mismatch-load figure
+- `poster_hero.png`, `poster_fig2_draft.png`, `poster_agent_single_patch.png`
 
-```
-F = w_yield · info_yield  −  w_opp · engaged_fraction        weights (1.0, 0.3)
-```
-
-`info_yield` is real harvested value; `engaged_fraction` is the MVT opportunity
-cost of time locked onto a patch. Fitness never reads `mismatch_index`, so any
-ancestral→modern change in fitness is an emergent consequence of behaviour.
-
-## Results (current)
-
-Population evolved under the ancestral world (`mismatch_index = 0.10`,
-`obs_noise = 0.1`), 50 generations, pop 120. Champion:
-
-```
-R̄ = 22.56,  κ = 6.41,  τ_pfc = 256    (fitness 0.756)
-```
-
-- **Selection acts on R̄ and κ** (interior optima; population spread collapses
-  κ −81%, R̄ −46%). An independent, seed-free brute-force fitness **cube**
-  (`genome_landscape.py`) places its optimum where the GA lands — the champion
-  sits on the ridge, so the GA reaches the optimum rather than finding its own
-  seed.
-- **τ_pfc is a flat direction** (spread ~0%; champion τ disagrees with the cube
-  peak). It sets only the *speed* of the leave decision, not its equilibrium — a
-  sloppy parameter, reported as a null / negative control, not dropped.
-- **The mismatch (hero result):** the fixed champion swept ancestral→modern has
-  its information yield collapse (0.82 → 0.07), wasted engagement climb
-  (0.07 → 0.93), and fitness go negative (+0.71 → −0.23), with the genome never
-  changing.
-
-Figures live in `ga_results/`
-([mismatch_transition.png](ga_results/mismatch_transition.png),
-[evolution_results.png](ga_results/evolution_results.png),
-[A_marginalize_max_tau.png](ga_results/A_marginalize_max_tau.png),
-[fitness_cube.png](ga_results/fitness_cube.png)).
-
-## Repository layout
-
-- `scripts/` — core model package
-  - `agent.py` — the 2-state neuron ODE + chemotaxis movement
-  - `natural_world.py` — the persistent-patch MVT foraging world + scent
-  - `genetic_algorithm.py` — genome, fitness, the GA, and the mismatch sweep/audit
-  - `model_dynamics.py` / `constants.py` — default parameters and shared constants
-  - `stimulus*.py` — stimulus maths and interactive/visualization helpers
-  - `genome_landscape.py` — brute-force fitness cube + 3D trajectory
-  - `plot_*.py`, `analysis.py`, `animation.py` — figure generation
-  - `run_champion_sweep.py` — hero figure from a saved `champion.pkl`
-- `hpc_run.py` — production GA run entry point (used on Stanage via `run_ga.sh`)
-- `hpc_sweep.py` — rebuild figures from checkpoints (no re-evolution)
-- `run_all.sh` and `run_*.sh` — SLURM job scripts (pipeline, cube, sweep, ladder)
-- `ga_results/` — evolved champion, sweep data, figures
-- `Evolutionary_Mismatch_Presentation.ipynb` — the walkthrough notebook
-  (regenerate with `python build_notebook.py`)
-- `docs/` — references and design specs
-
-## Reproducing
-
-Whole pipeline on the HPC (submit from the Stanage login node, then log off):
+## Reproduce
 
 ```bash
-export TRAIN_MISMATCH=0.10; export OBS_NOISE=0.1
-bash run_all.sh          # GA → rebuild+sweep → fitness cube (runs in parallel)
+sbatch run_landscape.sh      # ~35 h on 32 cores -> results/ladder/ladder_stack.npz
+
+python -m scripts.render_poster_hero --stack results/ladder/ladder_stack.npz \
+       --out results/poster_hero.png --rungs 0.00 0.10 0.25 0.50 1.00
+python -m scripts.render_fig2                 # add --recompute to re-simulate
+python -m scripts.render_agent_single_patch
 ```
 
-A quick local GA run:
-
-```bash
-python -m scripts.genetic_algorithm --pop_size 50 --n_gens 30 --n_jobs 4
-```
-
-Regenerate figures from existing results (no evolution):
-
-```bash
-python -m scripts.plot_rk_slice --tau 256 --res 60 --n_worlds 8 \
-       --mismatch_index 0.10 --obs_noise 0.1                 # 2D R̄×κ landscape slice
-python -m scripts.genome_landscape --load ga_results/fitness_cube.npz \
-       --run_dir ga_results --out_dir ga_results             # replot the cube
-```
-
-## Status
-
-- **Done:** the mismatch effect (hero figure), which traits are under selection
-  (R̄, κ interior optima; τ a reported null), and the champion validated against
-  an independent fitness cube.
-- **Designed, not yet run:** the mismatch-cost control (`run_ladder.sh`) —
-  evolving locally-adapted champions at a ladder of mismatch levels to show the
-  modern shortfall is *miscalibration*, not just a harder world. This is the
-  main next experiment (see [WRITEUP_traits_and_results.md](WRITEUP_traits_and_results.md)).
-
-## Acknowledgements
-
-This work was supported by the Sheffield Undergraduate Research Experience (SURE)
-programme at the University of Sheffield. We acknowledge the High Performance
-Computer (Stanage) for computational resources.
+Requires `numpy`, `scipy`, `matplotlib`. References: [docs/references.md](docs/references.md).

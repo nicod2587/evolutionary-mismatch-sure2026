@@ -27,7 +27,8 @@ Thumbs.db
 # accidental in-repo clones / worktrees (keep results known-fresh)
 SURE_*/
 
-# regenerable GA landscape checkpoints (resumable intermediate state, not results)
+# resumable landscape checkpoints (intermediate state, not results)
+**/ladder_stack_partial.npz
 **/fitness_cube_partial.npz
 
 # Obsidian vault (local navigation notes + app config — machine-specific, not project deliverables)
