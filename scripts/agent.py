@@ -1,314 +1,179 @@
 """
-agent.py — An information-foraging agent with a minimal 2-state neuron.
+The forager: a single two-variable neuron that moves around a World.
 
-The agent forages for information across patches (natural_world.py). Its brain is
-two numbers:
+  V     membrane potential of a leaky integrate-and-fire neuron. Perceived scent
+        pushes it up; when it crosses threshold the forager spikes, which takes one
+        bite of real value out of the nearest patch, and V resets. This is the
+        rise-to-threshold foraging neuron recorded in monkey dACC (Hayden et al. 2011).
 
-  V     — a leaky integrate-and-fire membrane. Scent drives it up; when it crosses
-          threshold it spikes, harvests real value from the patch, and resets.
-          (The primate dACC foraging neuron; Hayden et al. 2011.)
-  β_PFC — an opportunity-cost "time to leave" signal. It accumulates how far the
-          patch falls short of the agent's heritable richness prior R̄:
-          dβ/dt = (R̄ − I)/τ_pfc. When a patch underperforms, β rises, suppresses
-          V, and the agent wanders off — an emergent give-up rule.
-          (Kolling et al. 2012 https://www.science.org/doi/10.1126/science.1216930;
-           Charnov's Marginal Value Theorem, 1976
-           https://www.sciencedirect.com/science/article/abs/pii/004058097690040X)
+  beta  an opportunity-cost signal (Kolling et al. 2012). While the forager sits on
+        a patch, beta grows by how far the patch falls short of what it expects
+        from the environment as a whole (R_bar - scent). beta is subtracted from
+        V's input, so once it catches up with the scent the neuron goes quiet, the
+        forager stops engaging and wanders off. That is the marginal value theorem
+        leaving rule (Charnov 1976) coming out of the dynamics. While travelling,
+        beta relaxes back to 0.
 
-Key twist: the agent moves on SCENT, not real value. Ancestrally, scent fades as a
-patch drains, so a spent patch looks spent. In the modern regime scent stays high
-on a worked-out husk (a supernormal cue; Lim & Tan 2024
-https://link.springer.com/article/10.1007/s40806-024-00398-z), so nothing pulls
-the agent off it — only its own β_PFC can. See natural_world.Patch.scent for the
-formula.
+        dV/dt    = (-(V - V_rest) + I - beta) / tau_v
+        dbeta/dt = (prox * (R_bar - I) - (1 - prox) * beta) / tau_pfc
 
-That is the whole mismatch: executive control works fine, but it runs an ancestral
-computation on modern, decoupled inputs. Not weak willpower — a mismatch.
-
-Usage: pass world=AncestralWorld(...) to forage. world=None is a legacy
-single-source mode that bypasses the patch/harvest/β_PFC machinery.
+The forager steers by scent (I), never by real value. In the ancestral world the
+two agree. In the modern world an emptied patch still smells novel, so only beta
+can get the forager off it. See world.py for the scent formula.
 """
 
 import math
+from dataclasses import dataclass
+from typing import Optional, TYPE_CHECKING
+
 import numpy as np
 from scipy.integrate import solve_ivp
-from dataclasses import dataclass
-from typing import List, Optional, TYPE_CHECKING
-
-from .stimulus import StimulusSource
-from .constants import (
-    STEP_SIZE_DEFAULT, REFRACTORY_DROP_DEFAULT, MAX_SPIKES_DEFAULT,
-    WANDER_DT_DEFAULT, WANDER_SPEED_DEFAULT, TURN_NOISE_DEFAULT,
-    MIN_DT, STALL_WARN_TICKS,
-)
 
 if TYPE_CHECKING:
-    from .natural_world import AncestralWorld, Patch
+    from .world import World, Patch
+
+MIN_DT = 1e-9   # stop if the solver stops making progress
 
 
 @dataclass
 class AgentHistory:
-    """Container for aligned simulation history arrays."""
-    t:          np.ndarray
-    V:          np.ndarray
-    beta_PFC:   np.ndarray      # opportunity-cost / value-of-leaving signal
-    r:          np.ndarray      # distance to dominant source
-    x:          np.ndarray
-    y:          np.ndarray
+    """Everything recorded during one simulate() call.
+
+    The first group of arrays share one time axis, t. fire_times and
+    harvested_utility have one entry per spike instead.
+    """
+    t: np.ndarray
+    V: np.ndarray
+    beta_PFC: np.ndarray
+    r: np.ndarray                  # distance to the patch the forager is heading for
+    x: np.ndarray
+    y: np.ndarray
+    I: np.ndarray                  # total perceived scent (the neuron's input)
+    eng_weight: np.ndarray         # engagement, 0 (searching) to 1 (locked on a patch)
     fire_times: np.ndarray
-    I:          np.ndarray      # total perceived information scent (drive)
-    eng_weight: np.ndarray      # engagement weight in [0,1] at each timestep
-    harvested_utility: np.ndarray
-    # ^ Real information value harvested per spike (world.engage_patch's return),
-    # aligned 1:1 with fire_times, NOT t. Decoupled from I (perceived scent), which
-    # stays high on an empty modern patch. All-zero in legacy mode.
-    acquisition_cost: np.ndarray
-    # ^ Cost of acquiring information, charged per spike (the patch profile's
-    # sampling_cost c), aligned 1:1 with fire_times. High ancestral, ~0 modern.
-    total_distance: float
-    # ^ Total path length over the run (spike hops + wander steps).
-    wander_distance: float = 0.0
-    # ^ Path length from wander steps only (excludes spike hops).
-    frames: Optional[list] = None
-    # ^ Opt-in animation frames, only when simulate(record_frames>0); else None.
-    # Each frame: {'t','x','y','V','w','spiked','patches'} with 'patches' =
-    # list of (x, y, salience). Consumed by animation.create_world_animation.
-
-
-def net_travel_distance(history: "AgentHistory", window: float = 500.0) -> float:
-    """
-    Net travel distance: resample the trajectory onto a time grid of spacing
-    `window` and sum the straight-line hops between grid points. Sub-window
-    jitter cancels, so an agent fidgeting on a patch scores ~0 while one making
-    long journeys between patches accumulates real distance. Kept as a movement
-    diagnostic (no longer charged in fitness).
-    """
-    t = history.t
-    if len(t) < 2:
-        return 0.0
-    tg = np.arange(float(t[0]), float(t[-1]), float(window))
-    if len(tg) < 2:
-        return float(np.hypot(history.x[-1] - history.x[0],
-                              history.y[-1] - history.y[0]))
-    xg = np.interp(tg, t, history.x)
-    yg = np.interp(tg, t, history.y)
-    return float(np.sum(np.hypot(np.diff(xg), np.diff(yg))))
+    harvested_utility: np.ndarray  # real value gained by each spike (0 on an empty patch)
+    frames: Optional[list] = None  # snapshots for animation, see simulate(record_frames=)
 
 
 class Agent:
+    """One forager in a World.
+
+    params holds the neuron parameters and the two traits R_bar and kappa (see
+    params.BASE_PARAMS and fitness.Genome). The keyword arguments set how it moves:
+
+    engage_fraction, engage_scale
+        Engagement is a sigmoid of the net drive (scent minus beta), centred on
+        engage_fraction * I_fire with width engage_scale. High engagement means
+        the forager homes in on the patch; low means it random-walks.
+    wander_dt, wander_speed, turn_noise, min_speed_fraction
+        Every wander_dt time units the forager takes a step: a correlated random
+        walk (heading jitter turn_noise) blended with a pull toward the strongest
+        patch. The more engaged it is, the more pull and the less noise. It never
+        drops below min_speed_fraction of wander_speed.
+    travel_friction_scale
+        Travel is slower in the ancestral world (speed minus this much at
+        mismatch 0, falling to nothing at mismatch 1).
+    patch_harvest_amount
+        Real value each spike tries to take from a patch.
+    beta_cap
+        Upper limit on beta.
+    """
+
     def __init__(
         self,
         params: dict,
-        stimuli: Optional[List[StimulusSource]] = None,
+        world: "World",
         *,
-        world: Optional["AncestralWorld"] = None,
-        genome: Optional[dict] = None,
         x0: float = -200.0,
         y0: float = -240.0,
-        step_size: float = STEP_SIZE_DEFAULT,
-        refractory_drop: float = REFRACTORY_DROP_DEFAULT,
-        max_spikes: int = MAX_SPIKES_DEFAULT,
-        wander_dt: float = WANDER_DT_DEFAULT,
-        wander_speed: float = WANDER_SPEED_DEFAULT,
-        turn_noise: float = TURN_NOISE_DEFAULT,
+        refractory_drop: float = 5.0,     # after a spike V resets to theta - this
+        max_spikes: int = 100_000,        # stop the run early after this many spikes
+        wander_dt: float = 2.0,
+        wander_speed: float = 4.0,
+        turn_noise: float = 0.15,
         engage_fraction: float = 1.0,
         engage_scale: float = 3.0,
-        gradient_bias_strength: float = np.pi / 3,
         min_speed_fraction: float = 0.25,
-        world_half: Optional[float] = None,
         travel_friction_scale: float = 3.0,
         patch_harvest_amount: float = 0.10,
         beta_cap: float = 45.0,
         rng: Optional[np.random.Generator] = None,
     ):
-        """
-        World-mode knobs (ignored when world is None):
-
-        engage_fraction / engage_scale — the engagement weight is a sigmoid of the
-            NET drive (perceived scent minus β_PFC): w = σ((net_drive −
-            engage_fraction·I_fire)/engage_scale). When β_PFC suppresses the net
-            drive below threshold the agent disengages and wanders off — the
-            emergent giving-up that replaces the old habituation system.
-
-        travel_friction_scale — max wander-speed penalty at mismatch_index=0
-            (ancestral), scaling to 0 at mismatch_index=1 (modern): costly ancestral
-            travel, frictionless modern patch-switching.
-
-        patch_harvest_amount — real information value a spike tries to drain (clipped
-            to what's left). Smaller = more gradual depletion.
-
-        beta_cap — ceiling on β_PFC so the opportunity-cost signal saturates instead
-            of integrating without bound.
-
-        The genome supplies three neural traits via `params`/`genome` (see
-        fitness.Genome): R_bar (background-richness prior), kappa
-        (curiosity gain on novelty), tau_pfc (opportunity-cost accumulation rate).
-        """
-        # ── world vs stimuli ──────────────────────────────────────────────────
-        if world is None and (stimuli is None or len(stimuli) == 0):
-            raise ValueError(
-                "Provide either world= (AncestralWorld) or a non-empty stimuli= list."
-            )
-        if world is not None and stimuli is not None:
-            raise ValueError(
-                "Provide world= or stimuli=, not both. "
-                "In world mode, stimuli are managed by the world."
-            )
-
-        self.world = world
-        self._current_patch: Optional["Patch"] = None  # world-mode occupancy tracker
-
-        if world is not None:
-            from .natural_world import _silent_source
-            initial = world.get_active_sources(0.0) or [_silent_source(world.world_half)]
-            self.stimuli = initial
-            if world_half is None:
-                world_half = world.world_half
-        else:
-            self.stimuli = list(stimuli)
-
-        # ── params + genome ───────────────────────────────────────────────────
         self.p = dict(params)
-        if genome is not None:
-            self.p.update(genome)
-
-        for k in ['tau_pfc']:
-            if k not in self.p:
-                raise KeyError(f"Missing required param '{k}'.")
-
-        # Grounded genome traits with safe fallbacks (so a bare params dict runs).
-        self.p.setdefault('R_bar', 6.0)     # background-richness prior (drive units)
-        self.p.setdefault('kappa', 1.0)     # curiosity gain on the novelty term
+        self.world = world
+        self._current_patch: Optional["Patch"] = None
 
         if refractory_drop <= 0:
             raise ValueError("refractory_drop must be > 0.")
         if self.p['theta'] - refractory_drop <= self.p['V_rest']:
-            raise ValueError(
-                f"theta - refractory_drop ({self.p['theta'] - refractory_drop:.2f}) "
-                f"must stay above V_rest ({self.p['V_rest']}). "
-                "Lower refractory_drop or raise theta."
-            )
+            raise ValueError("theta - refractory_drop must stay above V_rest.")
 
-        # ── movement + integration params ─────────────────────────────────────
         self.x = float(x0)
         self.y = float(y0)
-        self.step_size         = float(step_size)
-        self.refractory_drop   = float(refractory_drop)
-        self.max_spikes        = int(max_spikes)
-        self.wander_dt         = float(wander_dt)
-        self.wander_speed      = float(wander_speed)
-        self.turn_noise        = float(turn_noise)
-        self.engage_fraction   = float(engage_fraction)
-        self.engage_scale      = float(engage_scale)
-        self.gradient_bias_strength = float(gradient_bias_strength)
+        self.world_half = world.world_half
+        self.refractory_drop = float(refractory_drop)
+        self.max_spikes = int(max_spikes)
+        self.wander_dt = float(wander_dt)
+        self.wander_speed = float(wander_speed)
+        self.turn_noise = float(turn_noise)
+        self.engage_fraction = float(engage_fraction)
+        self.engage_scale = float(engage_scale)
         self.min_speed_fraction = float(min_speed_fraction)
-        self.world_half        = float(world_half) if world_half is not None else None
         self.travel_friction_scale = float(travel_friction_scale)
-        self.patch_harvest_amount  = float(patch_harvest_amount)
-        self.beta_cap          = float(beta_cap)
-        self.rng               = rng if rng is not None else np.random.default_rng()
-        self.heading           = float(self.rng.uniform(0, 2 * np.pi))
+        self.patch_harvest_amount = float(patch_harvest_amount)
+        self.beta_cap = float(beta_cap)
+        self.rng = rng if rng is not None else np.random.default_rng()
+        self.heading = float(self.rng.uniform(0, 2 * np.pi))
 
-    # ── neural threshold ──────────────────────────────────────────────────────
+    # -- engagement ----------------------------------------------------------
 
     @property
     def I_fire(self) -> float:
-        """Minimum drive (perceived scent, with β_PFC=0) to reach firing threshold
-        from rest. With dV/dt = (−(V−V_rest) + I − β_PFC)/τ_v, V_eq = V_rest + I −
-        β_PFC, so firing (V_eq ≥ θ) needs I − β_PFC ≥ θ − V_rest."""
+        """Drive needed to reach threshold from rest when beta is 0. V settles at
+        V_rest + I - beta, so firing needs I - beta >= theta - V_rest (= 10)."""
         return self.p['theta'] - self.p['V_rest']
 
-    # ── engagement ────────────────────────────────────────────────────────────
-
-    @property
-    def _engage_threshold(self) -> float:
-        """Net-drive inflection point where the engagement weight equals 0.5."""
-        return self.engage_fraction * self.I_fire
-
     def _engagement_weight(self, net_drive: float) -> float:
-        """
-        Map NET drive (perceived scent − β_PFC) to a smooth [0,1] engagement weight
-        via a sigmoid. High net drive → locked onto the patch (exploit); once β_PFC
-        pushes the net drive below threshold the weight collapses and the agent
-        wanders off — the emergent MVT giving-up.
-        """
-        z = (net_drive - self._engage_threshold) / self.engage_scale
-        # Guard against overflow in exp for very negative net_drive (disengaged).
-        if z < -700.0:
+        z = (net_drive - self.engage_fraction * self.I_fire) / self.engage_scale
+        if z < -700.0:   # exp would overflow; the forager is fully disengaged
             return 0.0
         return 1.0 / (1.0 + math.exp(-z))
 
-    # ── stimulus / scent ──────────────────────────────────────────────────────
-
-    def _total_I(self, t: float) -> float:
-        """Total perceived information scent (drive) at the current position."""
-        if self.world is not None:
-            return self._total_I_world(t)
-        return float(sum(s.eval_at(self.x, self.y, t) for s in self.stimuli))
+    # -- perception ----------------------------------------------------------
+    # These run inside the ODE right-hand side, hundreds of thousands of times per
+    # simulation, so they use scalar math.* rather than numpy.
 
     def _patch_intensity(self, patch: "Patch", t: float) -> float:
-        """
-        Perceived scent I(r,t) this agent gets from `patch` at its current position.
-        The perceptual value is patch.scent evaluated with the agent's curiosity gain κ
-        on the novelty term (patch.scent(κ)), times the fade-in ramp, the spatial
-        envelope, and the temporal ripple.
-        """
+        """Scent this forager perceives from one patch at its current position:
+        the patch's scent (with this forager's kappa and the observation noise),
+        times its fade-in, its spatial falloff and its ripple."""
         eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'],
                                                     self.world.obs_noise_at(patch, t))
         if eff <= 1e-7:
             return 0.0
         prof = patch.profile
-        # Scalar math.* is ~5-10x faster than np.* here; this is a per-patch hot path
-        # called 100k+ times per simulation (see profiling notes on _drive_and_proximity).
         dx = self.x - patch.x; dy = self.y - patch.y
         r = math.sqrt(dx * dx + dy * dy)
-        env    = prof['A'] * math.exp(-((r * r) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
+        env = prof['A'] * math.exp(-((r * r) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
         ripple = 1.0 + prof['alpha'] * math.sin(prof['omega'] * t - prof['k'] * r)
         return eff * env * ripple
 
-    def _total_I_world(self, t: float) -> float:
-        """World-mode hot path: sum perceived scent over patches, so an
-        empty-but-glowing modern patch still drives the neuron (value gone, scent
-        high)."""
+    def _total_I(self, t: float) -> float:
         return float(sum(self._patch_intensity(p, t) for p in self.world.patches))
 
     def _drive_and_proximity(self, t: float) -> tuple:
+        """Return (I, prox) in one pass over the patches.
+
+        I is the total perceived scent, the same number as _total_I. prox is how
+        close the forager is to the nearest patch in purely spatial terms (the
+        strongest spatial envelope divided by the peak amplitude A), from 1 on top
+        of a patch to 0 out in the open. It ignores value, so it can tell "on an
+        empty patch" apart from "between patches" even though I is low in both.
         """
-        Return (I, prox) in a single patch pass:
-
-          I     — total perceived information scent driving the neuron (same value
-                  as _total_I), value+novelty weighted.
-          prox  — spatial-proximity scalar in [0, 1]: max patch spatial envelope
-                  at the agent's position, normalised by the profile amplitude A.
-                  It is VALUE-INDEPENDENT (pure geometry), so prox ≈ 1 means "sitting
-                  on a patch" and prox ≈ 0 means "travelling between patches",
-                  REGARDLESS of whether that patch is depleted. This is the one
-                  cue that separates "on a worked-out patch" (I low because value
-                  drained) from "in transit" (I low because no patch is near) —
-                  the two states the old beta_PFC rule conflated.
-
-        Used by _odes to gate the opportunity-cost signal: accumulate while on a
-        patch, relax while travelling.
-        """
-        if self.world is None:
-            I = 0.0
-            best_env = 0.0
-            Aref = 1e-9
-            for s in self.stimuli:
-                I += s.eval_at(self.x, self.y, t)
-                env = s.envelope_at(s.r_from(self.x, self.y))
-                if env > best_env:
-                    best_env = env
-                if s.A > Aref:
-                    Aref = s.A
-            return float(I), float(min(1.0, best_env / Aref))
-
         I = 0.0
         best_env = 0.0
         Aref = 1e-9
         kappa = self.p['kappa']
-        # Hot path (top of the profile): scalar math.* instead of np.* — the ODE
-        # solver calls this ~20x per integration segment, 100k+ times per sim.
         for patch in self.world.patches:
             prof = patch.profile
             if prof['A'] > Aref:
@@ -318,8 +183,7 @@ class Agent:
             env = prof['A'] * math.exp(-((r * r) / (2.0 * prof['sigma'] ** 2)) ** (prof['n'] / 2.0))
             if env > best_env:
                 best_env = env
-            # perceived scent contribution (reuses the same envelope) — matches
-            # _patch_intensity exactly so I stays consistent with _total_I.
+            # same arithmetic as _patch_intensity, reusing env
             eff = patch.fade_in_factor(t) * patch.scent(kappa, self.world.obs_noise_at(patch, t))
             if eff > 1e-7:
                 ripple = 1.0 + prof['alpha'] * math.sin(prof['omega'] * t - prof['k'] * r)
@@ -327,313 +191,184 @@ class Agent:
         prox = best_env / Aref
         return I, (1.0 if prox > 1.0 else prox)
 
-    def _dominant_source(self, t: float) -> StimulusSource:
-        """
-        The strongest local source by perceived scent. World mode: pick the
-        max-intensity patch, wrap it via Patch.to_source() (silent-source fallback
-        if none is perceptible), and update tracked occupancy. Legacy mode: argmax
-        over self.stimuli.
-        """
-        if self.world is not None:
-            from .natural_world import _silent_source
-            best, best_val = None, 0.0
-            for p in self.world.patches:
-                v = self._patch_intensity(p, t)
-                if v > best_val:
-                    best_val, best = v, p
-            self._update_current_patch(best, t)
-            if best is None:
-                return _silent_source(self.world.world_half)
-            src = best.to_source(t)
-            if src is None:
-                return _silent_source(self.world.world_half)
-            return src
-        return max(self.stimuli, key=lambda s: s.eval_at(self.x, self.y, t))
+    def _dominant_patch(self, t: float) -> Optional["Patch"]:
+        """The patch the forager perceives most strongly, or None if nothing is
+        detectable. Also tells the world when the forager switches away from a
+        patch (World.leave_patch), which is how spent patches get cleared."""
+        best, best_val = None, 0.0
+        for p in self.world.patches:
+            v = self._patch_intensity(p, t)
+            if v > best_val:
+                best_val, best = v, p
+        if best is not self._current_patch:
+            if self._current_patch is not None:
+                self.world.leave_patch(self._current_patch, t)
+            self._current_patch = best
+        if best is None or best.sensory_salience <= 1e-7:
+            return None
+        return best
 
-    def _update_current_patch(self, patch: Optional["Patch"], t: float) -> None:
-        """Track the dominant patch. On leaving one, tell the world (which despawns
-        it only if it is a spent husk — see world.leave_patch)."""
-        if patch is self._current_patch:
+    def _distance_to(self, patch: Optional["Patch"]) -> float:
+        # With no patch in range the forager is measured against the arena centre.
+        sx, sy = (patch.x, patch.y) if patch is not None else (0.0, 0.0)
+        return float(np.sqrt((self.x - sx) ** 2 + (self.y - sy) ** 2))
+
+    # -- movement ------------------------------------------------------------
+
+    def _wander_step(self, net_drive: float, t: float) -> None:
+        """One movement step between spikes."""
+        if self._dominant_patch(t) is None:
+            self._move(-np.inf, t)   # nothing to smell: pure random search
             return
-        if self._current_patch is not None:
-            self.world.leave_patch(self._current_patch, t)
-        self._current_patch = patch
-
-    def _harvest_patch(self, patch: Optional["Patch"], t: float) -> float:
-        """
-        Harvest `patch` on a spike via world.engage_patch (drains real information
-        value); returns the value actually harvested — 0.0 on an exhausted modern
-        patch even though it keeps firing spikes.
-        """
-        if patch is None or self.world is None:
-            return 0.0
-        return float(self.world.engage_patch(patch, self.patch_harvest_amount, t))
-
-    def _patch_cost(self, patch: Optional["Patch"]) -> float:
-        """Acquisition cost c charged for sampling `patch` (profile sampling_cost)."""
-        if patch is None or self.world is None:
-            return 0.0
-        return float(patch.profile.get('sampling_cost', 0.0))
-
-    # ── movement ──────────────────────────────────────────────────────────────
-
-    def _gradient_direction_to(self, sx: float, sy: float) -> np.ndarray:
-        """Unit vector from current position toward (sx, sy). Zero if already there."""
-        dx, dy = sx - self.x, sy - self.y
-        dist = np.sqrt(dx ** 2 + dy ** 2)
-        if dist < 1e-9:
-            return np.array([0.0, 0.0])
-        return np.array([dx / dist, dy / dist])
-
-    def _biased_wander_step(self, net_drive: float, t: float) -> None:
-        """Chemotactic step blending a random walk with gradient pull toward the
-        dominant source, modulated by the engagement weight. World mode adds
-        silent-source suppression and travel friction."""
-        if self.world is not None:
-            self._biased_wander_step_world(net_drive, t)
-        else:
-            self._biased_wander_step_core(net_drive, t)
-
-    def _biased_wander_step_world(self, net_drive: float, t: float) -> None:
-        """World-mode wander step: travel friction (full ancestral, none modern),
-        and suppressed gradient pull when no patch is perceptible."""
-        dom = self._dominant_source(t)
-        patch = getattr(dom, '_patch', None)
-
-        if patch is None:
-            self._biased_wander_step_core(-np.inf, t)  # no pull: pure search
-            return
-
-        mismatch_index = self.world.mismatch_index
-        friction = (1.0 - mismatch_index) * self.travel_friction_scale
-        original_speed = self.wander_speed
-        self.wander_speed = max(0.0, original_speed - friction)
+        friction = (1.0 - self.world.mismatch_index) * self.travel_friction_scale
+        base_speed = self.wander_speed
+        self.wander_speed = max(0.0, base_speed - friction)
         try:
-            self._biased_wander_step_core(net_drive, t)
+            self._move(net_drive, t)
         finally:
-            self.wander_speed = original_speed
+            self.wander_speed = base_speed
 
-    def _biased_wander_step_core(self, net_drive: float, t: float) -> None:
-        """Pure movement logic — no world awareness. Shared by both modes."""
+    def _move(self, net_drive: float, t: float) -> None:
+        """Correlated random walk plus a pull toward the strongest patch, mixed by
+        the engagement weight. Bounces off the arena walls."""
         w = self._engagement_weight(net_drive)
 
-        # Random walk component
-        eff_noise = self.turn_noise * (1.0 - w)
-        self.heading += self.rng.normal(0.0, max(eff_noise, 1e-6))
+        self.heading += self.rng.normal(0.0, max(self.turn_noise * (1.0 - w), 1e-6))
+        speed = self.wander_speed * (
+            self.min_speed_fraction + (1.0 - self.min_speed_fraction) * (1.0 - w))
+        rand_dx = speed * np.cos(self.heading)
+        rand_dy = speed * np.sin(self.heading)
 
-        eff_speed = self.wander_speed * (
-            self.min_speed_fraction + (1.0 - self.min_speed_fraction) * (1.0 - w)
-        )
-        rand_dx = eff_speed * np.cos(self.heading)
-        rand_dy = eff_speed * np.sin(self.heading)
-
-        # Gradient component
         grad_dx, grad_dy = 0.0, 0.0
         if w > 0.01:
-            dom = self._dominant_source(t)
-            gdir = self._gradient_direction_to(dom.x, dom.y)
-            grad_scale = w * self.wander_speed * (1.0 - self.min_speed_fraction)
-            grad_dx = grad_scale * gdir[0]
-            grad_dy = grad_scale * gdir[1]
+            patch = self._dominant_patch(t)
+            tx, ty = (patch.x, patch.y) if patch is not None else (0.0, 0.0)
+            dx, dy = tx - self.x, ty - self.y
+            dist = np.sqrt(dx ** 2 + dy ** 2)
+            if dist >= 1e-9:
+                pull = w * self.wander_speed * (1.0 - self.min_speed_fraction)
+                grad_dx = pull * (dx / dist)
+                grad_dy = pull * (dy / dist)
 
         new_x = self.x + rand_dx + grad_dx
         new_y = self.y + rand_dy + grad_dy
-
-        # Boundary reflection
-        if self.world_half is not None:
-            wh = self.world_half
-            if new_x > wh or new_x < -wh:
-                self.heading = np.pi - self.heading
-                new_x = np.clip(new_x, -wh, wh)
-            if new_y > wh or new_y < -wh:
-                self.heading = -self.heading
-                new_y = np.clip(new_y, -wh, wh)
-
+        wh = self.world_half
+        if new_x > wh or new_x < -wh:
+            self.heading = np.pi - self.heading
+            new_x = np.clip(new_x, -wh, wh)
+        if new_y > wh or new_y < -wh:
+            self.heading = -self.heading
+            new_y = np.clip(new_y, -wh, wh)
         self.x = new_x
         self.y = new_y
 
-    # ── ODE system ────────────────────────────────────────────────────────────
+    # -- neuron --------------------------------------------------------------
 
     def _odes(self, t: float, y: np.ndarray) -> list:
-        """2-state ODE: [V, β_PFC].
-
-        V      — leaky integrate-and-fire membrane driven by perceived scent I,
-                 gated by the opportunity-cost signal β_PFC.
-        β_PFC  — accumulates (R̄ − I)/τ_pfc: rises when the current patch's
-                 perceived intake falls below the background-richness prior R̄,
-                 suppressing V and triggering the giving-up. Soft-clamped to
-                 [0, beta_cap].
-        """
         p = self.p
-        V, beta_PFC = y
+        V, beta = y
         I, prox = self._drive_and_proximity(t)
-        beta_eff = max(0.0, beta_PFC)
+        beta_eff = max(0.0, beta)
 
         dVdt = (1.0 / p['tau_v']) * (-(V - p['V_rest']) + I - beta_eff)
 
-        # beta_PFC = value-of-leaving / opportunity-cost signal. It accumulates the
-        # intake shortfall (R_bar − I) ONLY while the agent is physically on a patch
-        # (prox ≈ 1), and relaxes toward 0 while travelling between patches
-        # (prox ≈ 0).
-        #
-        # The old rule integrated (R_bar − I) unconditionally. In sparse ancestral
-        # worlds the agent spends most of its time in transit with I ≈ 0, so beta
-        # was driven to its cap and PINNED there — which zeroed the engagement
-        # weight, killed gradient-homing, and locked the agent out of ever reaching
-        # a patch to harvest (0 spikes on unlucky layouts). Gating by spatial
-        # proximity makes beta a true patch-level giving-up rule: it rises only when
-        # the CURRENT patch's honest intake has dropped below R_bar (depleted → leave)
-        # and forgets during travel so the agent arrives at the next patch fresh.
-        #
-        # The modern trap is unchanged: there the supernormal husk keeps I high even
-        # when drained, so (R_bar − I) stays negative and beta stays ≈ 0 whether or
-        # not prox is 1 — the agent still over-stays. The mismatch is untouched.
+        # beta only builds up while the forager is on a patch (prox near 1) and
+        # decays while it travels (prox near 0). Without this gate, beta would
+        # climb to its cap during long ancestral journeys and the forager would
+        # arrive at the next patch already wanting to leave.
         dbetadt = (1.0 / p['tau_pfc']) * (
             prox * (p['R_bar'] - I) - (1.0 - prox) * beta_eff
         )
-        if beta_PFC <= 0.0 and dbetadt < 0.0:
+        if beta <= 0.0 and dbetadt < 0.0:
             dbetadt = 0.0
-        if beta_PFC >= self.beta_cap and dbetadt > 0.0:
+        if beta >= self.beta_cap and dbetadt > 0.0:
             dbetadt = 0.0
-
         return [dVdt, dbetadt]
 
-    # ── main loop ─────────────────────────────────────────────────────────────
+    # -- main loop -----------------------------------------------------------
 
     def simulate(self, t_span: tuple, rtol: float = 1e-6, atol: float = 1e-8,
                  record_frames: int = 0) -> AgentHistory:
-        """
-        Integrate the ODEs segment by segment, halting each segment at a threshold
-        crossing (a spike). A spike harvests the dominant patch (world.engage_patch),
-        resets V, and records the acquisition cost; between spikes the agent
-        chemotaxis-wanders. The world clock and respawns are updated inline.
+        """Run the forager from t_span[0] to t_span[1].
 
-        record_frames > 0 captures that many evenly-spaced snapshots into
-        AgentHistory.frames for the animation (off by default so landscape scoring
-        pays nothing).
+        The neuron is integrated in chunks of wander_dt. A chunk ends early if V
+        hits threshold: that is a spike, which harvests the strongest patch and
+        resets V. If a chunk ends without a spike the forager takes a movement
+        step instead. The run also stops after max_spikes spikes.
+
+        record_frames > 0 stores that many evenly spaced snapshots in
+        AgentHistory.frames (used by render_forager_video.py).
         """
         t_start, t_end = t_span
         p = self.p
 
         def spike_event(t, y):
             return y[0] - p['theta']
-
-        spike_event.terminal  = True
+        spike_event.terminal = True
         spike_event.direction = 1
 
-        state = np.array([p['V_rest'], 0.0], dtype=float)  # [V, β_PFC]
+        state = np.array([p['V_rest'], 0.0], dtype=float)   # [V, beta]
         t_current = t_start
 
-        total_distance = 0.0
-        wander_distance = 0.0
+        times, V_h, B_h, x_h, y_h, r_h, I_h, ew_h = [], [], [], [], [], [], [], []
+        fire_times, harvested_h = [], []
 
-        times, V_h, B_h = [], [], []
-        x_h, y_h, r_h, I_h, ew_h = [], [], [], [], []
-        fire_times = []
-        harvested_h = []
-        cost_h = []
-
-        # ── opt-in animation frame recording ──────────────────────────────────
         frames = None
-        frame_times = None
-        next_frame = 0
         if record_frames and record_frames > 0:
             frames = []
             frame_times = np.linspace(t_start, t_end, int(record_frames))
+            next_frame = 0
 
         def _record_frame(t_now: float, cur_state: np.ndarray, spiked_now: bool) -> None:
-            if self.world is not None:
-                patch_snap = [(pt.x, pt.y, pt.sensory_salience) for pt in self.world.patches]
-            else:
-                patch_snap = [(s.x, s.y, 1.0) for s in self.stimuli]
             net_drive = self._total_I(t_now) - max(0.0, cur_state[1])
             frames.append({
                 't': float(t_now), 'x': float(self.x), 'y': float(self.y),
                 'V': float(cur_state[0]),
                 'w': float(self._engagement_weight(net_drive)),
-                'spiked': bool(spiked_now), 'patches': patch_snap,
+                'spiked': bool(spiked_now),
+                'patches': [(pt.x, pt.y, pt.sensory_salience) for pt in self.world.patches],
             })
 
-        n_spikes   = 0
-        slow_ticks = 0
-
+        n_spikes = 0
         while t_current < t_end:
-            old_x, old_y = self.x, self.y
-            if self.world is not None:
-                self.world.advance(t_current)
+            self.world.advance(t_current)
             segment_end = min(t_current + self.wander_dt, t_end)
-
             sol = solve_ivp(
-                fun=self._odes,
-                t_span=(t_current, segment_end),
-                y0=state,
-                method='RK45',
-                events=spike_event,
-                rtol=rtol,
-                atol=atol,
-                max_step=np.inf,
+                fun=self._odes, t_span=(t_current, segment_end), y0=state,
+                method='RK45', events=spike_event, rtol=rtol, atol=atol, max_step=np.inf,
             )
-
             if not sol.success:
                 raise RuntimeError(f"Integration failed at t={t_current}: {sol.message}")
 
-            start_idx = 1 if times else 0
-            dom = self._dominant_source(sol.t[-1])
+            start_idx = 1 if times else 0   # skip the point shared with the last chunk
+            r_now = self._distance_to(self._dominant_patch(sol.t[-1]))
             for j in range(start_idx, len(sol.t)):
                 times.append(sol.t[j])
                 V_h.append(sol.y[0, j]); B_h.append(max(0.0, sol.y[1, j]))
-                x_h.append(self.x);      y_h.append(self.y)
-                r_h.append(dom.r_from(self.x, self.y))
+                x_h.append(self.x); y_h.append(self.y)
+                r_h.append(r_now)
                 I_j = self._total_I(sol.t[j])
                 I_h.append(I_j)
                 ew_h.append(self._engagement_weight(I_j - max(0.0, sol.y[1, j])))
 
-            state     = sol.y[:, -1].copy()
-            t_new     = sol.t[-1]
-            spiked    = sol.status == 1
-            I_now     = self._total_I(t_new)
-            net_now   = I_now - max(0.0, state[1])
-            w_now     = self._engagement_weight(net_now)
+            state = sol.y[:, -1].copy()
+            t_new = sol.t[-1]
+            spiked = sol.status == 1
 
             if spiked:
                 n_spikes += 1
                 fire_times.append(t_new)
-                slow_ticks = 0
-
-                dom = self._dominant_source(t_new)
-                patch = getattr(dom, '_patch', None)
-                harvested = self._harvest_patch(patch, t_new)
+                patch = self._dominant_patch(t_new)
+                harvested = 0.0
+                if patch is not None:
+                    harvested = float(self.world.engage_patch(patch, self.patch_harvest_amount, t_new))
                 harvested_h.append(harvested)
-                cost_h.append(self._patch_cost(patch))
-
-                state[0] = p['theta'] - self.refractory_drop  # reset V
-
+                state[0] = p['theta'] - self.refractory_drop
                 if n_spikes >= self.max_spikes:
                     break
-
             else:
-                self._biased_wander_step(net_now, t_new)
-
-                if w_now > 0.7:
-                    slow_ticks += 1
-                    if slow_ticks == STALL_WARN_TICKS:
-                        import warnings
-                        beta_now = max(0.0, state[1])
-                        warnings.warn(
-                            f"Agent engaged (w={w_now:.2f}) but not spiking at "
-                            f"t={t_new:.1f}: β_PFC={beta_now:.2f} suppressing drive "
-                            f"I={I_now:.2f}. If persistent, a supernormal husk trap "
-                            "(intended) or a parameter mismatch (check R_bar / I_fire).",
-                            RuntimeWarning,
-                        )
-                else:
-                    slow_ticks = 0
-
-            # Distance this iteration. Charge only wander steps to wander_distance.
-            disp = float(np.linalg.norm([self.x - old_x, self.y - old_y]))
-            total_distance += disp
-            if not spiked:
-                wander_distance += disp
+                net_now = self._total_I(t_new) - max(0.0, state[1])
+                self._wander_step(net_now, t_new)
 
             if frames is not None:
                 while next_frame < len(frame_times) and t_new >= frame_times[next_frame]:
@@ -642,7 +377,6 @@ class Agent:
 
             if t_new - t_current < MIN_DT and not spiked:
                 break
-
             t_current = t_new
 
         if frames is not None:
@@ -651,13 +385,10 @@ class Agent:
                 next_frame += 1
 
         return AgentHistory(
-            t=np.array(times),       V=np.array(V_h),        beta_PFC=np.array(B_h),
-            r=np.array(r_h),         x=np.array(x_h),         y=np.array(y_h),
+            t=np.array(times), V=np.array(V_h), beta_PFC=np.array(B_h),
+            r=np.array(r_h), x=np.array(x_h), y=np.array(y_h),
+            I=np.array(I_h), eng_weight=np.array(ew_h),
             fire_times=np.array(fire_times),
-            I=np.array(I_h),         eng_weight=np.array(ew_h),
             harvested_utility=np.array(harvested_h),
-            acquisition_cost=np.array(cost_h),
-            total_distance=total_distance,
-            wander_distance=wander_distance,
             frames=frames,
         )

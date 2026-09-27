@@ -1,36 +1,19 @@
-# Python 
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
-# Virtual environments
 .venv/
 venv/
-env/
-ENV/
 hpc_env/
-# Jupyter Notebook
 .ipynb_checkpoints/
-# VS Code
+
+# Editors and OS
 .vscode/
-# Environment and local config files
-.env
-.env.*
-# macOS and Windows file metadata
 .DS_Store
 Thumbs.db
-# Word lock/temp files
-~$*.doc
-~$*.docx
-# HPC/SLURM job logs (regenerable run output)
+~$*
+
+# SLURM logs
 *.log
 
-# accidental in-repo clones / worktrees (keep results known-fresh)
-SURE_*/
-
-# resumable landscape checkpoints (intermediate state, not results)
+# Half-finished landscape runs (compute_ladder resumes from these)
 **/ladder_stack_partial.npz
-**/fitness_cube_partial.npz
-
-# Obsidian vault (local navigation notes + app config — machine-specific, not project deliverables)
-📊 Status & Next Actions.md
-🧩 Architecture — scripts.md
