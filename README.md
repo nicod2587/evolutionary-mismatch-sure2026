@@ -12,14 +12,14 @@ endless novelty that is worth very little.
 
 This project models a forager as a single neuron and maps how well every forager
 strategy does as its world slides from **ancestral** (novelty tracks value) to
-**modern** (novelty carries no information). In the ancestral world, loving novelty
-costs nothing. As the world modernises, a ceiling on novelty seeking appears and keeps
-falling, and a forager tuned to the ancestral world goes from doing well to doing badly.
+**modern** (novelty carries no information). The slide changes that one thing and
+nothing else: the same patches, holding the same value, in the same places, found at
+the same speed. Any change in which strategies do well is caused by novelty coming
+loose from value.
 
 The poster is in [docs/poster/Nico_Poster/main.tex](docs/poster/Nico_Poster/main.tex)
-and the abstract in [docs/poster/abstract.txt](docs/poster/abstract.txt).
-
-![Fitness landscape at five mismatch levels](results/poster_hero.png)
+and the abstract in [docs/poster/abstract.txt](docs/poster/abstract.txt). It was made
+with an earlier version of the model (see [Model versions](#model-versions)).
 
 ## The model
 
@@ -41,8 +41,14 @@ novelty = (1 − m) · (value × freshness) + m
 
 - `value` is the share of the patch's real value still left, from 1 down to 0.
 - `freshness` falls from 1 to 0 as the patch gets sampled.
-- `m` is the mismatch: 0 for the ancestral world, 1 for the modern one.
+- `m` is the mismatch: 0 for the ancestral world, 1 for the modern one. It appears
+  nowhere else in the model.
 - `prox` is how close the forager is to a patch, from 1 on top of it to 0 in the open.
+
+The world is the same at every `m`: 3 patches, each holding on average 40 units of
+value, with the same scent reach and the same travel speed. A given seed lays out the
+same map at every `m`, so the levels are compared on identical worlds.
+`tests/test_pure_mismatch.py` checks this.
 
 When `V` crosses threshold the neuron spikes, and each spike takes a bite of real value
 from the patch. While the forager sits on a patch, `β` grows by how far the patch falls
@@ -62,14 +68,18 @@ the fraction of time spent engaged on a patch.
 
 ## Results
 
-`scripts/compute_ladder.py` scores a 60 × 60 grid of (`R̄`, `κ`) at 11 mismatch levels.
-Each cell is the average over 8 simulated worlds, each run for 25,000 time units. The figure above
-shows five of those levels. The two below come from the same simulator.
+`scripts/compute_ladder.py` scores a grid of (`R̄`, `κ`) at 8 mismatch levels
+(0, 0.05, 0.10, 0.20, 0.30, 0.50, 0.75, 1). Both axes are log-spaced (`R̄` from 1 to 200,
+`κ` from 0.1 to 50), because both traits matter over orders of magnitude. Each cell is
+the average over 8 simulated worlds, each run for 25,000 time units, and the file keeps
+every world's score, so each cell also has a standard error.
 
-|                                                                                                                                    |                                                                                |
-| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| ![Mismatch load](results/poster_fig2_draft.png)                                                                                    | ![One forager, one patch](results/poster_agent_single_patch.png)               |
-| A genome tuned to the ancestral world (red) against the best genome available in each world (green). The gap is the mismatch load. | One forager homing in on one patch, and its`V` and `β` over the same run. |
+The mismatch-load figure compares a genome tuned to the ancestral world (`m = 0.10`)
+with the best genome in the biological box (`R̄ ≤ 25`, `κ ≤ 15`) at each level. Both are
+re-scored on held-out worlds, so the best genome isn't flattered by having been picked
+as the luckiest of many noisy cells.
+
+*Results for this version of the model are being computed.*
 
 ## Code
 
@@ -80,15 +90,15 @@ scripts/
   agent.py                      the forager: V/β dynamics, spiking, movement
   fitness.py                    the fitness function; scores one landscape cell
   compute_ladder.py             the fitness landscape at each mismatch level
-  render_poster_hero.py         landscape filmstrip       (poster: colour_plots.png)
-  render_fig2.py                mismatch load figure      (poster: mismatch load.png)
-  render_agent_single_patch.py  one forager, one patch    (poster: plots.png)
-  render_forager_video.py       phone video of a forager  (not on the poster)
+  render_landscapes.py          landscape filmstrip
+  render_mismatch_load.py       mismatch load figure
+  render_agent_single_patch.py  one forager, one patch
+  render_forager_video.py       phone video of a forager
+tests/test_pure_mismatch.py     checks that m changes nothing but the novelty term
 results/
-  ladder/ladder_stack.npz       the landscapes: 11 mismatch levels × 60 × 60
-  fig2_data.npz                 cached simulations for the mismatch load figure
-  *.png, *.mp4                  the figures and the video
-run_landscape.sh                SLURM job that produced ladder_stack.npz
+  ladder_res<N>/ladder_stack.npz  the landscapes: 8 mismatch levels × N × N
+  poster_v1/                    the printed poster's ladder and figures (old model)
+run_landscape.sh                SLURM job that computes a ladder
 docs/references.md              papers behind each part of the model
 ```
 
@@ -97,25 +107,35 @@ docs/references.md              papers behind each part of the model
 ```bash
 pip install -r requirements.txt
 
-# The landscape: about 35 hours on 32 cores (resumes if interrupted)
-sbatch run_landscape.sh
+python tests/test_pure_mismatch.py
 
-# The figures: seconds each
-python -m scripts.render_poster_hero --stack results/ladder/ladder_stack.npz \
-       --out results/poster_hero.png --rungs 0.00 0.10 0.25 0.50 1.00
-python -m scripts.render_fig2                 # add --recompute to re-run its simulations
+# The landscape on 32 cores (resumes if interrupted)
+sbatch run_landscape.sh                                        # 10 × 10
+sbatch --time=30:00:00 --export=ALL,RES=40 run_landscape.sh    # 40 × 40
+python -m scripts.compute_ladder --summarise results/ladder_res40/ladder_stack.npz
+
+# The figures
+python -m scripts.render_landscapes --stack results/ladder_res40/ladder_stack.npz
+python -m scripts.render_mismatch_load --stack results/ladder_res40/ladder_stack.npz
 python -m scripts.render_agent_single_patch
 python -m scripts.render_forager_video        # add --mismatch_index 1.0 for the modern world
 ```
 
-The figure scripts rebuild the committed PNGs byte for byte, and
-`render_fig2 --recompute` reproduces `results/fig2_data.npz` exactly.
+The landscape was computed on the University of Sheffield's Stanage cluster (Linux,
+Python 3.11). The simulation is chaotic over a 25,000-unit run, so floating-point
+differences between platforms and library versions push individual runs apart.
+Re-scoring cells on a Windows laptop gave values within about 0.04 of the stored ones
+rather than identical values. That is about the size of a cell's between-world
+standard error, which the ladder file records.
 
-The landscape is less portable. It was computed on the University of Sheffield's
-Stanage cluster (Linux, Python 3.11). The simulation is chaotic over a 25,000-unit run, so
-floating-point differences between platforms and library versions push individual runs
-apart. Re-scoring a few cells on a Windows laptop gave values within about 0.03 of the
-stored ones rather than identical values.
+## Model versions
+
+- **pure-v2** (this version). The mismatch changes only how novelty relates to value.
+- **poster-v1** (git tag `poster-v1`, outputs in `results/poster_v1/`). This is the printed
+  poster. As well as the novelty term, moving towards the modern world also raised the
+  patch count from 3 to 5, cut each patch's value from 40 to 8, narrowed and flickered
+  the scent, and made travel up to 4 times faster. Those changes made the modern world
+  easier, and they are mixed into its results; pure-v2 removes them.
 
 ## References
 

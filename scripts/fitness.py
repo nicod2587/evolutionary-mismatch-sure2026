@@ -73,6 +73,12 @@ def evaluate_genome(args: tuple) -> float:
     args = (genome_arr, base_params, world_seeds, t_eval, max_spikes, world_kwargs),
     packed in one tuple so this can be handed to a ProcessPoolExecutor.
     """
+    return float(np.mean(evaluate_genome_per_world(args)))
+
+
+def evaluate_genome_per_world(args: tuple) -> np.ndarray:
+    """Fitness of one genome in each world of the list (same args as
+    evaluate_genome), so the spread between worlds can be reported too."""
     genome_arr, base_params, world_seeds, t_eval, max_spikes, world_kwargs = args
 
     from scripts.world import World
@@ -89,4 +95,4 @@ def evaluate_genome(args: tuple) -> float:
             warnings.simplefilter('ignore', RuntimeWarning)
             history = agent.simulate(t_span=(0.0, float(t_eval)))
         scores.append(compute_fitness(history))
-    return float(np.mean(scores))
+    return np.array(scores)

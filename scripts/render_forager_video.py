@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
 import imageio_ffmpeg
 
-from scripts.world import World, resource_profile
+from scripts.world import World
 from scripts.fitness import Genome
 from scripts.params import ANCESTRAL_GENOME, BASE_PARAMS
 from scripts.agent import Agent
@@ -76,7 +76,7 @@ def render(out_path, seed=21, t_end=18000.0, mismatch_index=0.0, seconds=40, fps
     n_frames = int(seconds * fps)
     world, h, leave_times = simulate(seed, t_end, mismatch_index, n_frames)
     frames = h.frames
-    prof = resource_profile(mismatch_index)
+    prof = world.profile
     half = world.world_half
     xs = np.linspace(-half, half, grid_size)
     X, Y = np.meshgrid(xs, xs)

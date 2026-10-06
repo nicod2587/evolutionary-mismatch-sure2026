@@ -13,6 +13,12 @@ so a drained patch smells drained. In the modern world (h = 0) every patch looks
 equally novel whatever is left in it, so an empty patch keeps its pull. That is
 the supernormal stimulus (De Block & Du Laing 2010; Lim, Yong & Tan 2025).
 
+mismatch_index changes h and nothing else. The number of patches, their value, how
+far their scent carries and how fast the forager travels are the same at every
+level, and a given seed lays out the same map at every level. So any difference
+between levels comes from novelty coming loose from value, not from a richer or
+easier world.
+
 Patches follow the marginal value theorem set-up (Charnov 1976): they deplete as
 the forager works them, and a spent patch is removed once the forager leaves it,
 then replaced after a random delay somewhere else.
@@ -26,27 +32,18 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-# The two ends of the mismatch axis. Every in-between world linearly interpolates
-# these (see resource_profile).
+# The patches, the same at every mismatch level.
 #   A, sigma, n         spatial shape of the scent: A * exp(-(r^2 / 2 sigma^2)^(n/2)).
 #                       With n near 1 this falls off exponentially rather than like a
 #                       Gaussian, so a patch can be picked up from a long way off.
 #   alpha, omega, k     a small travelling ripple: * (1 + alpha sin(omega t - k r))
 #   max_utility         average real value a fresh patch holds
-ANCESTRAL_PROFILE = dict(
+PATCH_PROFILE = dict(
     A=30.0, sigma=110.0, n=1.1,        # wide, easy-to-find patches
     alpha=0.07, omega=0.04, k=0.0,     # steady scent
     max_utility=40.0,                  # few patches, each worth a lot
 )
-MODERN_PROFILE = dict(
-    A=30.0, sigma=90.0, n=1.0,         # same peak strength, slightly tighter
-    alpha=0.38, omega=0.18, k=0.015,   # a flickering, "always something new" scent
-    max_utility=8.0,                   # many patches, each worth little
-)
-
-# Patches are rare in the ancestral world and plentiful in the modern one.
-ANCESTRAL_N_PATCHES = 3
-MODERN_N_PATCHES = 5
+N_PATCHES = 3
 
 PATCH_NOVELTY = 1.0      # how novel every patch looks in the fully modern world
 NOVELTY_WEIGHT = 0.5     # weight of the kappa * novelty term against the value term
@@ -54,21 +51,11 @@ FRESHNESS_BUDGET = 150.0 # samples after which a patch is fully familiar (freshn
 VALUE_CV = 0.6           # spread of real value between patches (coefficient of variation)
 
 
-def _lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
-
-
-def n_patches_for(mismatch_index: float) -> int:
-    t = float(np.clip(mismatch_index, 0.0, 1.0))
-    return int(round(_lerp(ANCESTRAL_N_PATCHES, MODERN_N_PATCHES, t)))
-
-
 def resource_profile(mismatch_index: float) -> Dict[str, float]:
-    """Patch parameters at a point on the ancestral (0) to modern (1) axis."""
-    t = float(np.clip(mismatch_index, 0.0, 1.0))
-    profile = {key: _lerp(ANCESTRAL_PROFILE[key], MODERN_PROFILE[key], t)
-               for key in ANCESTRAL_PROFILE}
-    profile['mismatch_index'] = t
+    """Patch parameters at a point on the ancestral (0) to modern (1) axis. Only
+    mismatch_index itself differs between points; Patch.scent reads it."""
+    profile = dict(PATCH_PROFILE)
+    profile['mismatch_index'] = float(np.clip(mismatch_index, 0.0, 1.0))
     return profile
 
 
@@ -155,7 +142,7 @@ class World:
         world_half: float = 700.0,
         rng: Optional[np.random.Generator] = None,
         mismatch_index: float = 0.0,
-        n_patches: Optional[int] = None,       # None: set by mismatch_index
+        n_patches: int = N_PATCHES,
         placement_margin: float = 100.0,       # keep patches this far from the walls
         min_patch_separation: float = 150.0,
         husk_threshold: float = 0.5,           # a patch left with less than this share
@@ -174,8 +161,7 @@ class World:
         self.mismatch_index = float(np.clip(mismatch_index, 0.0, 1.0))
         self.profile = resource_profile(self.mismatch_index)
         self.rng = rng if rng is not None else np.random.default_rng()
-        self.n_patches = (n_patches_for(self.mismatch_index) if n_patches is None
-                          else int(n_patches))
+        self.n_patches = int(n_patches)
         self.margin = float(placement_margin)
         self.min_sep = float(min_patch_separation)
         self.husk_threshold = float(husk_threshold)

@@ -70,9 +70,10 @@ class Agent:
         walk (heading jitter turn_noise) blended with a pull toward the strongest
         patch. The more engaged it is, the more pull and the less noise. It never
         drops below min_speed_fraction of wander_speed.
-    travel_friction_scale
-        Travel is slower in the ancestral world (speed minus this much at
-        mismatch 0, falling to nothing at mismatch 1).
+    travel_friction
+        Speed lost while a patch is in scent range (the same at every mismatch
+        level). Out in the open, with nothing to smell, the forager searches at
+        full wander_speed.
     patch_harvest_amount
         Real value each spike tries to take from a patch.
     beta_cap
@@ -94,7 +95,7 @@ class Agent:
         engage_fraction: float = 1.0,
         engage_scale: float = 3.0,
         min_speed_fraction: float = 0.25,
-        travel_friction_scale: float = 3.0,
+        travel_friction: float = 3.0,
         patch_harvest_amount: float = 0.10,
         beta_cap: float = 45.0,
         rng: Optional[np.random.Generator] = None,
@@ -119,7 +120,7 @@ class Agent:
         self.engage_fraction = float(engage_fraction)
         self.engage_scale = float(engage_scale)
         self.min_speed_fraction = float(min_speed_fraction)
-        self.travel_friction_scale = float(travel_friction_scale)
+        self.travel_friction = float(travel_friction)
         self.patch_harvest_amount = float(patch_harvest_amount)
         self.beta_cap = float(beta_cap)
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -220,9 +221,8 @@ class Agent:
         if self._dominant_patch(t) is None:
             self._move(-np.inf, t)   # nothing to smell: pure random search
             return
-        friction = (1.0 - self.world.mismatch_index) * self.travel_friction_scale
         base_speed = self.wander_speed
-        self.wander_speed = max(0.0, base_speed - friction)
+        self.wander_speed = max(0.0, base_speed - self.travel_friction)
         try:
             self._move(net_drive, t)
         finally:

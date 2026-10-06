@@ -27,8 +27,16 @@ BASE_PARAMS = {
     'kappa': 1.0,       # how much novelty adds to a patch's perceived value
 }
 
-# The genome used for the "ancestral-tuned" forager on the poster (the red line in
-# the mismatch-load figure, and the agent in the single-patch figure). It is the
-# mean (R_bar, kappa) of the top 10% fittest cells inside the biological box
-# (fitness.BOX_R, fitness.BOX_K) of the mismatch = 0.10 landscape.
+# The mismatch level the "ancestral-tuned" forager is tuned to. Kept at the
+# poster-v1 value so the two model versions stay comparable.
+ANCESTRAL_MISMATCH = 0.10
+
+# The "ancestral-tuned" forager (the red line in the mismatch-load figure, and the
+# agent in the single-patch figure and the video): the mean (R_bar, kappa) of the
+# top 10% fittest cells inside the biological box (fitness.BOX_R, fitness.BOX_K)
+# of the ANCESTRAL_MISMATCH landscape. compute_ladder prints it at the end of a
+# run (or: python -m scripts.compute_ladder --summarise <stack>).
+#
+# TODO after the first pure-v2 ladder: replace with the printed value. (14.7, 4.33)
+# is the poster-v1 value, from the old model.
 ANCESTRAL_GENOME = (14.7, 4.33)

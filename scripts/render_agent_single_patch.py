@@ -1,5 +1,5 @@
 """
-Poster figure: one forager and one patch (plots.png on the poster).
+Figure: one forager and one patch.
 
 Left: the scent field and the forager's path. It starts in a corner beyond the
 reach of the scent, random-walks until it picks the scent up, then heads straight
@@ -23,7 +23,7 @@ from scripts.agent import Agent
 START = (-620.0, -620.0)   # bottom-left corner, well outside the patch's scent
 
 
-def render(out_path='results/poster_agent_single_patch.png', seed=8, t_end=4000.0,
+def render(out_path='results/agent_single_patch.png', seed=8, t_end=4000.0,
            mismatch_index=0.10):
     p = Genome.from_array(ANCESTRAL_GENOME).to_params(BASE_PARAMS)
     world = World(rng=np.random.default_rng(seed), mismatch_index=mismatch_index, n_patches=1,
@@ -82,7 +82,7 @@ def render(out_path='results/poster_agent_single_patch.png', seed=8, t_end=4000.
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--out', default='results/poster_agent_single_patch.png')
+    ap.add_argument('--out', default='results/agent_single_patch.png')
     ap.add_argument('--seed', type=int, default=8)
     ap.add_argument('--t_end', type=float, default=4000.0)
     ap.add_argument('--mismatch_index', type=float, default=0.10)
