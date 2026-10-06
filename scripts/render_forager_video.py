@@ -20,7 +20,6 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FFMpegWriter
-from matplotlib.colors import LinearSegmentedColormap
 import imageio_ffmpeg
 
 from scripts.world import World, resource_profile
@@ -28,14 +27,15 @@ from scripts.fitness import Genome
 from scripts.params import ANCESTRAL_GENOME, BASE_PARAMS
 from scripts.agent import Agent
 
-V_COLOR, B_COLOR, TRAIL_COLOR = '#1f78b4', '#d9480f', '#1f78b4'
+V_COLOR, B_COLOR = '#1f78b4', '#d9480f'      # traces on the light page
 BG, FG, DIM = '#ffffff', '#1a1a1a', '#6b6b76'
-# YlOrRd starting from pure white, so empty ground blends into the page background
-SCENT_CMAP = LinearSegmentedColormap.from_list(
-    'white_ylorrd', ['#ffffff'] + [matplotlib.colormaps['YlOrRd'](v) for v in np.linspace(0.15, 1, 8)])
-VIDEO_MIN_SEP = 350.0   # patch spacing for the video only. The default (150) is under twice
-                        # the scent width, so neighbouring patches merge into one blob on screen
-LEAVE_FLASH = 300.0     # how long (sim time) "gave up, leaving" stays on screen
+# the world square stays dark (inferno on black, as on the poster) inside the light page
+SCENT_CMAP = 'inferno'
+MAP_TRAIL, MAP_FEED, MAP_LEAVE, MAP_TEXT = '#5ec8f5', '#5ec8f5', '#ff8a5c', '#f2f2f2'
+VIDEO_MIN_SEP = 400.0   # patch spacing for the video only: enough that neighbouring glows
+                        # (~3 sigma = 330) don't merge, loose enough that patches can land anywhere
+TRAIL_SPAN = 6000.0     # sim time of path shown behind the forager, so the trail doesn't clutter
+LEAVE_FLASH = 500.0    # how long (sim time) "gave up, leaving" stays on screen
 
 plt.rcParams['animation.ffmpeg_path'] = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -71,8 +71,8 @@ def scent_grid(patches, prof, X, Y, t):
     return total
 
 
-def render(out_path, seed=15, t_end=9000.0, mismatch_index=0.0, seconds=36, fps=30,
-           window=2000.0, grid_size=140):
+def render(out_path, seed=21, t_end=18000.0, mismatch_index=0.0, seconds=40, fps=60,
+           window=3000.0, grid_size=140):
     n_frames = int(seconds * fps)
     world, h, leave_times = simulate(seed, t_end, mismatch_index, n_frames)
     frames = h.frames
@@ -99,15 +99,15 @@ def render(out_path, seed=15, t_end=9000.0, mismatch_index=0.0, seconds=36, fps=
 
     img = ax_w.imshow(np.zeros((grid_size, grid_size)), extent=[-half, half, -half, half],
                       origin='lower', cmap=SCENT_CMAP, vmin=0, vmax=vmax)
-    trail, = ax_w.plot([], [], color=TRAIL_COLOR, lw=1.3, alpha=0.75)
-    dot = ax_w.scatter([0], [0], s=70, facecolor=FG, edgecolor='white', lw=1.2, zorder=5)
-    status = ax_w.text(0.03, 0.96, '', transform=ax_w.transAxes, color=FG, fontsize=11,
+    trail, = ax_w.plot([], [], color=MAP_TRAIL, lw=1.4, alpha=0.9)
+    dot = ax_w.scatter([0], [0], s=70, facecolor='white', edgecolor='k', lw=1.0, zorder=5)
+    status = ax_w.text(0.03, 0.96, '', transform=ax_w.transAxes, color=MAP_TEXT, fontsize=11,
                        va='top', weight='bold')
     counter = ax_w.text(0.5, -0.03, '', transform=ax_w.transAxes, color=FG, fontsize=10,
                         ha='center', va='top')
     ax_w.set_xticks([]); ax_w.set_yticks([])
     for s in ax_w.spines.values():
-        s.set_color('#c8c8d0')
+        s.set_visible(False)
 
     for ax, lab, col in ((ax_v, 'V  membrane (mV)', V_COLOR), (ax_b, 'β  opportunity cost', B_COLOR)):
         ax.set_facecolor(BG)
@@ -130,18 +130,19 @@ def render(out_path, seed=15, t_end=9000.0, mismatch_index=0.0, seconds=36, fps=
             t = fr['t']
             img.set_data(scent_grid(fr['patches'], prof, X, Y, t))
             k = np.searchsorted(h.t, t, side='right')
-            trail.set_data(h.x[:k], h.y[:k])
+            k0 = np.searchsorted(h.t, t - TRAIL_SPAN)
+            trail.set_data(h.x[k0:k], h.y[k0:k])
             dot.set_offsets([[fr['x'], fr['y']]])
 
             feeding = np.any((fire_times > t - 3 * dt_frame) & (fire_times <= t))
             just_left = np.any((leave_times > t - LEAVE_FLASH) & (leave_times <= t))
             if just_left:
-                status.set_text('gave up, leaving'); status.set_color(B_COLOR)
+                status.set_text('gave up, leaving'); status.set_color(MAP_LEAVE)
             elif feeding:
-                status.set_text('feeding'); status.set_color(V_COLOR)
+                status.set_text('feeding'); status.set_color(MAP_FEED)
             else:
-                status.set_text('searching'); status.set_color(DIM)
-            dot.set_facecolor(V_COLOR if feeding else FG)
+                status.set_text('searching'); status.set_color(MAP_TEXT)
+            dot.set_facecolor(MAP_FEED if feeding else 'white')
             n_spk = int(np.searchsorted(fire_times, t, side='right'))
             n_left = int(np.sum(leave_times <= t))
             counter.set_text(f'value harvested {harvest_cum[n_spk]:.0f}   ·   patches finished {n_left}')
@@ -163,11 +164,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', default=None)
-    ap.add_argument('--seed', type=int, default=15)
-    ap.add_argument('--t_end', type=float, default=9000.0)
+    ap.add_argument('--seed', type=int, default=21)
+    ap.add_argument('--t_end', type=float, default=18000.0)
     ap.add_argument('--mismatch_index', type=float, default=0.0)
-    ap.add_argument('--seconds', type=float, default=36)
-    ap.add_argument('--fps', type=int, default=30)
+    ap.add_argument('--seconds', type=float, default=40)
+    ap.add_argument('--fps', type=int, default=60)
     a = ap.parse_args()
     label = 'ancestral' if a.mismatch_index <= 0.0 else f'mm{a.mismatch_index:.2f}'
     out = a.out or f'results/forager_{label}.mp4'

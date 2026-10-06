@@ -1,4 +1,4 @@
-# Information-Free Novelty
+Information-Free Novelty
 
 **Modelling evolutionary mismatch: information foraging and information-free novelty**
 
@@ -66,10 +66,10 @@ the fraction of time spent engaged on a patch.
 Each cell is the average over 8 simulated worlds, each run for 25,000 time units. The figure above
 shows five of those levels. The two below come from the same simulator.
 
-| | |
-|---|---|
-| ![Mismatch load](results/poster_fig2_draft.png) | ![One forager, one patch](results/poster_agent_single_patch.png) |
-| A genome tuned to the ancestral world (red) against the best genome available in each world (green). The gap is the mismatch load. | One forager homing in on one patch, and its `V` and `β` over the same run. |
+|                                                                                                                                    |                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| ![Mismatch load](results/poster_fig2_draft.png)                                                                                    | ![One forager, one patch](results/poster_agent_single_patch.png)               |
+| A genome tuned to the ancestral world (red) against the best genome available in each world (green). The gap is the mismatch load. | One forager homing in on one patch, and its`V` and `β` over the same run. |
 
 ## Code
 
