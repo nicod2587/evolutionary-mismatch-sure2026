@@ -37,6 +37,6 @@ ANCESTRAL_MISMATCH = 0.10
 # of the ANCESTRAL_MISMATCH landscape. compute_ladder prints it at the end of a
 # run (or: python -m scripts.compute_ladder --summarise <stack>).
 #
-# TODO after the first pure-v2 ladder: replace with the printed value. (14.7, 4.33)
-# is the poster-v1 value, from the old model.
-ANCESTRAL_GENOME = (14.7, 4.33)
+# From the pure-v2 40x40 ladder (results/ladder_res40). The poster-v1 value was
+# (14.7, 4.33).
+ANCESTRAL_GENOME = (8.7, 2.98)

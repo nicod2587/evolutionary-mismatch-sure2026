@@ -57,28 +57,6 @@ def test_travel_speed_does_not_depend_on_mismatch():
     assert len(speeds) == 1
 
 
-def _zero_harvest_spikes_late(kappa, R_bar=20.0, m=1.0, t_end=3000.0):
-    """One forager placed on an emptied patch. Count spikes in the second half of
-    the run that harvest nothing, i.e. firing on an empty patch."""
-    w = World(rng=np.random.default_rng(3), mismatch_index=m, n_patches=1,
-              obs_noise=0.0)
-    p = w.patches[0]
-    p.current_utility = 0.0
-    p.n_samples = int(p.freshness_budget)
-    params = dict(BASE_PARAMS, R_bar=R_bar, kappa=kappa)
-    a = Agent(params, w, x0=p.x, y0=p.y, rng=np.random.default_rng(3))
-    h = a.simulate(t_span=(0.0, t_end))
-    late = h.fire_times > t_end / 2
-    return int(np.sum(late & (h.harvested_utility == 0.0)))
-
-
-def test_trap_kappa_separates_trapped_from_free_foragers():
-    from scripts.world import trap_kappa
-    k_max = float(trap_kappa(20.0, 1.0))               # 20 / 15 = 1.33
-    assert _zero_harvest_spikes_late(1.3 * k_max) > 0    # above: still firing on nothing
-    assert _zero_harvest_spikes_late(0.75 * k_max) == 0  # below: beta pulls it away
-
-
 if __name__ == '__main__':
     for name, fn in list(globals().items()):
         if name.startswith('test_'):

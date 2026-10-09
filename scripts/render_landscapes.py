@@ -1,10 +1,7 @@
 """
 Figure: the R_bar x kappa fitness landscape at several mismatch levels, side by
-side on one shared colour scale (bright = fit). The dashed rectangle is the
-biological box (fitness.BOX_R, fitness.BOX_K). The cyan line is the predicted
-curiosity ceiling (world.trap_kappa): above it a forager gets stuck on emptied
-patches. It is computed from the model's constants, not fitted. Log-spaced ladders
-are drawn on log axes, each cell at its true size.
+side on one shared colour scale (bright = fit). Log-spaced ladders are drawn on log
+axes, each cell at its true size.
 
   python -m scripts.render_landscapes --stack results/ladder_res40/ladder_stack.npz \
          --out results/landscapes.png --rungs 0.00 0.10 0.30 0.50 1.00
@@ -14,12 +11,6 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
-from scripts.fitness import BOX_R, BOX_K
-from scripts.params import BASE_PARAMS
-from scripts.world import trap_kappa
-
-I_FIRE = BASE_PARAMS['theta'] - BASE_PARAMS['V_rest']
 
 
 def cell_edges(axis, log):
@@ -60,12 +51,6 @@ def render(stack_path, out_path, rungs_wanted=None):
                            shading='flat')
         if log:
             ax.set_xscale('log'); ax.set_yscale('log')
-        ax.plot([Re[0], BOX_R, BOX_R], [BOX_K, BOX_K, Ke[0]], ls='--', lw=1.0,
-                color='white', alpha=0.85)
-        if rungs[i] > 0:
-            r_line = np.geomspace(Re[0], Re[-1], 200) if log else np.linspace(Re[0], Re[-1], 200)
-            ax.plot(r_line, trap_kappa(r_line, rungs[i], I_FIRE), color='#00e5ff', lw=1.8)
-        ax.set_xlim(Re[0], Re[-1]); ax.set_ylim(Ke[0], Ke[-1])
         ax.set_title(f'mismatch = {rungs[i]:.2f}', fontsize=10, weight='bold', pad=4)
         ax.set_xlabel('R̄  (richness prior)', fontsize=8)
         if ax is axes[0]:

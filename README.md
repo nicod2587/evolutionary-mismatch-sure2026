@@ -57,19 +57,6 @@ with the scent, the neuron goes quiet and the forager wanders off to look for an
 patch. At `m = 0` an emptied patch stops smelling novel, so the forager leaves on time.
 At `m = 1` it still smells novel, and only `β` can pull the forager away.
 
-This gives a closed-form **curiosity ceiling**. On an emptied patch the scent is
-`0.5 · κ · m`, so the forager's input there is about `A · 0.5 · κ · m` (with `A = 30` the
-scent's peak strength). `β` only builds up while that input is below `R̄`, so once it
-beats both `R̄` and the firing threshold (10), nothing can pull the forager away and it
-keeps firing on an empty patch:
-
-```
-κ_max = max(10, R̄) / (15 · m)
-```
-
-The ceiling doesn't exist at `m = 0` and falls as `1/m`. It is computed from the
-model's constants, not fitted (`world.trap_kappa`, checked in `tests/`).
-
 Each forager has two heritable traits:
 
 - `R̄`, how rich it expects the environment to be

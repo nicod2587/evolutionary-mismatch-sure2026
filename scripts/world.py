@@ -51,25 +51,6 @@ FRESHNESS_BUDGET = 150.0 # samples after which a patch is fully familiar (freshn
 VALUE_CV = 0.6           # spread of real value between patches (coefficient of variation)
 
 
-def trap_kappa(R_bar, mismatch_index: float, I_fire: float = 10.0):
-    """The curiosity ceiling: the largest kappa at which a forager can still leave
-    an emptied patch.
-
-    On an emptied patch value_fraction is 0, so novelty is (1 - h) * PATCH_NOVELTY
-    = mismatch_index * PATCH_NOVELTY and the forager's input there is about
-    I = A * NOVELTY_WEIGHT * kappa * mismatch_index * PATCH_NOVELTY. beta only
-    builds up while R_bar > I, so if I exceeds both R_bar and the firing threshold
-    I_fire (theta - V_rest), the neuron fires on the empty patch for ever. Hence
-
-        kappa_max = max(I_fire, R_bar) / (A * NOVELTY_WEIGHT * PATCH_NOVELTY * m).
-
-    Ignores the ripple (a few per cent) and observation noise. Infinite at m = 0."""
-    m = float(mismatch_index)
-    denom = PATCH_PROFILE['A'] * NOVELTY_WEIGHT * PATCH_NOVELTY * m
-    return np.maximum(I_fire, R_bar) / denom if m > 0 else np.full_like(
-        np.asarray(R_bar, dtype=float), np.inf)
-
-
 def resource_profile(mismatch_index: float) -> Dict[str, float]:
     """Patch parameters at a point on the ancestral (0) to modern (1) axis. Only
     mismatch_index itself differs between points; Patch.scent reads it."""
