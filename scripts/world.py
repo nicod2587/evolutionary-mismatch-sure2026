@@ -187,8 +187,8 @@ class World:
         # _sample_position keeps a new patch away from the ones already in
         # self.patches. The poster runs built all the starting patches in one go,
         # before any were in self.patches, so they were not spaced from each other
-        # (respawns always were). space_initial_patches=False does the same and
-        # reproduces the poster numbers exactly.
+        # (respawns always were). space_initial_patches=False does the same; every
+        # script here passes it, so the stored landscapes were computed that way.
         self.patches: List[Patch] = []
         if space_initial_patches:
             for _ in range(self.n_patches):

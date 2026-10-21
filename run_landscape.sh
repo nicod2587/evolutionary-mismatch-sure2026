@@ -10,7 +10,7 @@
 
 # Computes the R_bar x kappa fitness landscape at 8 mismatch levels (0 = novelty
 # tracks value, 1 = novelty is free; nothing else about the world changes) and
-# writes results/ladder/ladder_stack.npz. Stanage HPC, University of Sheffield.
+# writes results/ladder_res<RES>/ladder_stack.npz. Stanage HPC, University of Sheffield.
 #
 #   sbatch run_landscape.sh                                        # 10 x 10 first look, ~1 h
 #   sbatch --time=30:00:00 --export=ALL,RES=40 run_landscape.sh    # 40 x 40, ~16x the cells

@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter, NullFormatter
 
 
 def cell_edges(axis, log):
@@ -21,7 +22,7 @@ def cell_edges(axis, log):
     return np.exp(edges) if log else edges
 
 
-def render(stack_path, out_path, rungs_wanted=None):
+def render(stack_path, out_path, rungs_wanted=None, even=False):
     z = np.load(stack_path)
     R = z['R_bar']; K = z['kappa']; F = z['F']; rungs = z['rungs']
     log = 'spacing' in z.files and str(z['spacing']) == 'log'
@@ -39,6 +40,7 @@ def render(stack_path, out_path, rungs_wanted=None):
 
     vmin = float(z['global_vmin']); vmax = float(z['global_vmax'])
     Re, Ke = cell_edges(R, log), cell_edges(K, log)
+    plot_log = log and not even   # 'even' = plain linear axes (old poster style)
 
     n = len(show)
     fig, axes = plt.subplots(1, n, figsize=(2.55 * n + 0.9, 3.15),
@@ -49,8 +51,14 @@ def render(stack_path, out_path, rungs_wanted=None):
     for ax, i in zip(axes, show):
         im = ax.pcolormesh(Re, Ke, F[i].T, cmap='plasma', vmin=vmin, vmax=vmax,
                            shading='flat')
-        if log:
+        if even:
+            ax.set_xlim(0, 200); ax.set_ylim(0, 50)
+        if plot_log:
             ax.set_xscale('log'); ax.set_yscale('log')
+            for axis in (ax.xaxis, ax.yaxis):
+                axis.set_major_formatter(FuncFormatter(lambda v, _: f'{v:g}'))
+                axis.set_minor_formatter(NullFormatter())
+            ax.tick_params(which='minor', length=0)
         ax.set_title(f'mismatch = {rungs[i]:.2f}', fontsize=10, weight='bold', pad=4)
         ax.set_xlabel('R̄  (richness prior)', fontsize=8)
         if ax is axes[0]:
@@ -74,6 +82,7 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description='Render the landscape filmstrip')
     p.add_argument('--stack', default='results/ladder_res40/ladder_stack.npz')
     p.add_argument('--out', default='results/landscapes.png')
+    p.add_argument('--even', action='store_true', help='linear axes, R 0-200, kappa 0-50')
     p.add_argument('--rungs', type=float, nargs='+', default=None)
     a = p.parse_args()
-    render(a.stack, a.out, a.rungs)
+    render(a.stack, a.out, a.rungs, a.even)
