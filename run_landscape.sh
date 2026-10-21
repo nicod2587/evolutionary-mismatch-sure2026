@@ -18,7 +18,7 @@
 # If the job is killed, submit it again with the same RES: it carries on from the
 # last finished mismatch level. The two ends and mismatch 0.10 are done first.
 #
-# The printed poster used the older model (git tag poster-v1).
+# The printed poster used an older model (results/poster_v1).
 
 RES=${RES:-10}
 
@@ -27,8 +27,8 @@ module load Python/3.11.3-GCCcore-12.3.0
 module load SciPy-bundle/2023.07-gfbf-2023a
 module load matplotlib/3.7.2-gfbf-2023a
 
-cd ~/SURE_2026
-source hpc_env/bin/activate
+cd "$SLURM_SUBMIT_DIR"          # submit from the repo root
+source hpc_env/bin/activate     # a venv with requirements.txt installed
 python tests/test_pure_mismatch.py || exit 1
 
 OUT=results/ladder_res${RES}

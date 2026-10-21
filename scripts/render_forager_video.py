@@ -3,7 +3,7 @@ A portrait (1080 x 1920) MP4 of one forager at work, for showing on a phone: the
 forager moving through a world of several patches, with its membrane V and
 opportunity-cost signal beta scrolling underneath.
 
-It uses the same genome and simulator as the poster figures. Patches brighten as
+The forager is the ancestral-tuned genome (params.ANCESTRAL_GENOME). Patches brighten as
 they spawn, fade as they are eaten, and disappear once the forager gives up on them.
 Needs ffmpeg, which the imageio-ffmpeg package provides.
 
@@ -35,7 +35,7 @@ MAP_TRAIL, MAP_FEED, MAP_LEAVE, MAP_TEXT = '#5ec8f5', '#5ec8f5', '#ff8a5c', '#f2
 VIDEO_MIN_SEP = 400.0   # patch spacing for the video only: enough that neighbouring glows
                         # (~3 sigma = 330) don't merge, loose enough that patches can land anywhere
 TRAIL_SPAN = 6000.0     # sim time of path shown behind the forager, so the trail doesn't clutter
-LEAVE_FLASH = 500.0    # how long (sim time) "gave up, leaving" stays on screen
+LEAVE_FLASH = 500.0     # how long (sim time) "gave up, leaving" stays on screen
 
 plt.rcParams['animation.ffmpeg_path'] = imageio_ffmpeg.get_ffmpeg_exe()
 

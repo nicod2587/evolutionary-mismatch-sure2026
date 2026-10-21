@@ -27,7 +27,7 @@ def render(out_path='results/agent_single_patch.png', seed=8, t_end=4000.0,
            mismatch_index=0.10):
     p = Genome.from_array(ANCESTRAL_GENOME).to_params(BASE_PARAMS)
     world = World(rng=np.random.default_rng(seed), mismatch_index=mismatch_index, n_patches=1,
-                  space_initial_patches=False)   # as run for the poster
+                  space_initial_patches=False)   # as in the other scripts
     world.patches[0].x = 0.0
     world.patches[0].y = 0.0
     agent = Agent(p, world, max_spikes=20000, rng=np.random.default_rng(seed),

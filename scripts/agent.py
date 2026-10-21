@@ -7,19 +7,20 @@ The forager: a single two-variable neuron that moves around a World.
         rise-to-threshold foraging neuron recorded in monkey dACC (Hayden et al. 2011).
 
   beta  an opportunity-cost signal (Kolling et al. 2012). While the forager sits on
-        a patch, beta grows by how far the patch falls short of what it expects
-        from the environment as a whole (R_bar - scent). beta is subtracted from
-        V's input, so once it catches up with the scent the neuron goes quiet, the
-        forager stops engaging and wanders off. That is the marginal value theorem
-        leaving rule (Charnov 1976) coming out of the dynamics. While travelling,
-        beta relaxes back to 0.
+        a patch, beta grows only while the patch smells worse than the forager
+        expects of the environment as a whole (scent < R_bar). beta is subtracted
+        from V's input, and V needs a net drive of 10 to fire. So the forager stops
+        biting and wanders off once the scent drops below max(10, R_bar): the
+        firing threshold ends the visit when R_bar < 10, and beta ends it when
+        R_bar > 10. That is the marginal value theorem leaving rule (Charnov 1976)
+        coming out of the dynamics. While travelling, beta relaxes back to 0.
 
         dV/dt    = (-(V - V_rest) + I - beta) / tau_v
         dbeta/dt = (prox * (R_bar - I) - (1 - prox) * beta) / tau_pfc
 
 The forager steers by scent (I), never by real value. In the ancestral world the
-two agree. In the modern world an emptied patch still smells novel, so only beta
-can get the forager off it. See world.py for the scent formula.
+two agree. In the modern world an emptied patch still smells novel, so a forager
+with a large kappa can stay hooked on it. See world.py for the scent formula.
 """
 
 import math
