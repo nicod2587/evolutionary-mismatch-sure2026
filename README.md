@@ -13,6 +13,9 @@ python -m scripts.render_landscapes
 python -m scripts.render_mismatch_load
 ```
 
+Or open `explore.ipynb`, which walks through the model and the results and lets you run
+your own foragers.
+
 The landscape was computed on Sheffield's Stanage cluster with `run_landscape.sh`.
 The poster in `docs/poster` used an earlier version of the model.
 
