@@ -1,10 +1,7 @@
 """
-Figure: the R_bar x kappa fitness landscape at several mismatch levels, side by
-side on one shared colour scale (bright = fit). Log-spaced ladders are drawn on log
-axes, each cell at its true size.
+Figure: the fitness landscape at several mismatch levels, on one colour scale.
 
-  python -m scripts.render_landscapes --stack results/ladder_res40/ladder_stack.npz \
-         --out results/landscapes.png --rungs 0.00 0.10 0.30 0.50 1.00
+  python -m scripts.render_landscapes --rungs 0 0.1 0.3 0.5 1
 """
 import argparse
 import numpy as np

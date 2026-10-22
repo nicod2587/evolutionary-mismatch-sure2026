@@ -1,26 +1,17 @@
 """
-The forager: a single two-variable neuron that moves around a World.
+The forager: one neuron with two variables, moving around a World.
 
-  V     membrane potential of a leaky integrate-and-fire neuron. Perceived scent
-        pushes it up; when it crosses threshold the forager spikes, which takes one
-        bite of real value out of the nearest patch, and V resets. This is the
-        rise-to-threshold foraging neuron recorded in monkey dACC (Hayden et al. 2011).
-
-  beta  an opportunity-cost signal (Kolling et al. 2012). While the forager sits on
-        a patch, beta grows only while the patch smells worse than the forager
-        expects of the environment as a whole (scent < R_bar). beta is subtracted
-        from V's input, and V needs a net drive of 10 to fire. So the forager stops
-        biting and wanders off once the scent drops below max(10, R_bar): the
-        firing threshold ends the visit when R_bar < 10, and beta ends it when
-        R_bar > 10. That is the marginal value theorem leaving rule (Charnov 1976)
-        coming out of the dynamics. While travelling, beta relaxes back to 0.
+  V     membrane potential, a leaky integrate-and-fire unit (Hayden et al. 2011).
+        Scent pushes it up, and each spike takes a bite of value from a patch.
+  beta  opportunity cost (Kolling et al. 2012). It builds up on a patch that smells
+        worse than R_bar, and it is subtracted from V's input.
 
         dV/dt    = (-(V - V_rest) + I - beta) / tau_v
         dbeta/dt = (prox * (R_bar - I) - (1 - prox) * beta) / tau_pfc
 
-The forager steers by scent (I), never by real value. In the ancestral world the
-two agree. In the modern world an emptied patch still smells novel, so a forager
-with a large kappa can stay hooked on it. See world.py for the scent formula.
+V needs a drive of 10 to fire, so the forager leaves once the scent drops below
+max(10, R_bar). It steers by scent, never by real value, so in the modern world an
+empty patch that still smells novel can keep it hooked.
 """
 
 import math
@@ -38,11 +29,8 @@ MIN_DT = 1e-9   # stop if the solver stops making progress
 
 @dataclass
 class AgentHistory:
-    """Everything recorded during one simulate() call.
-
-    The first group of arrays share one time axis, t. fire_times and
-    harvested_utility have one entry per spike instead.
-    """
+    """What one simulate() call records. fire_times and harvested_utility have one
+    entry per spike; everything else shares the time axis t."""
     t: np.ndarray
     V: np.ndarray
     beta_PFC: np.ndarray
@@ -57,28 +45,13 @@ class AgentHistory:
 
 
 class Agent:
-    """One forager in a World.
+    """One forager in a World. params holds the neuron constants plus R_bar and kappa.
 
-    params holds the neuron parameters and the two traits R_bar and kappa (see
-    params.BASE_PARAMS and fitness.Genome). The keyword arguments set how it moves:
-
-    engage_fraction, engage_scale
-        Engagement is a sigmoid of the net drive (scent minus beta), centred on
-        engage_fraction * I_fire with width engage_scale. High engagement means
-        the forager homes in on the patch; low means it random-walks.
-    wander_dt, wander_speed, turn_noise, min_speed_fraction
-        Every wander_dt time units the forager takes a step: a correlated random
-        walk (heading jitter turn_noise) blended with a pull toward the strongest
-        patch. The more engaged it is, the more pull and the less noise. It never
-        drops below min_speed_fraction of wander_speed.
-    travel_friction
-        Speed lost while a patch is in scent range (the same at every mismatch
-        level). Out in the open, with nothing to smell, the forager searches at
-        full wander_speed.
-    patch_harvest_amount
-        Real value each spike tries to take from a patch.
-    beta_cap
-        Upper limit on beta.
+    Every wander_dt the forager takes a step that mixes a correlated random walk
+    with a pull toward the strongest patch. Engagement sets the mix: a sigmoid of
+    scent minus beta, centred near the firing drive (engage_fraction, engage_scale).
+    With a patch in range it moves travel_friction slower. Each spike takes
+    patch_harvest_amount of value.
     """
 
     def __init__(
@@ -146,9 +119,7 @@ class Agent:
     # simulation, so they use scalar math.* rather than numpy.
 
     def _patch_intensity(self, patch: "Patch", t: float) -> float:
-        """Scent this forager perceives from one patch at its current position:
-        the patch's scent (with this forager's kappa and the observation noise),
-        times its fade-in, its spatial falloff and its ripple."""
+        """Scent this forager gets from one patch, where it stands now."""
         eff = patch.fade_in_factor(t) * patch.scent(self.p['kappa'],
                                                     self.world.obs_noise_at(patch, t))
         if eff <= 1e-7:
@@ -164,14 +135,8 @@ class Agent:
         return float(sum(self._patch_intensity(p, t) for p in self.world.patches))
 
     def _drive_and_proximity(self, t: float) -> tuple:
-        """Return (I, prox) in one pass over the patches.
-
-        I is the total perceived scent, the same number as _total_I. prox is how
-        close the forager is to the nearest patch in purely spatial terms (the
-        strongest spatial envelope divided by the peak amplitude A), from 1 on top
-        of a patch to 0 out in the open. It ignores value, so it can tell "on an
-        empty patch" apart from "between patches" even though I is low in both.
-        """
+        """(I, prox) in one pass. prox runs from 1 on top of a patch to 0 in the
+        open and ignores value, so it can tell an empty patch from open ground."""
         I = 0.0
         best_env = 0.0
         Aref = 1e-9
@@ -194,9 +159,8 @@ class Agent:
         return I, (1.0 if prox > 1.0 else prox)
 
     def _dominant_patch(self, t: float) -> Optional["Patch"]:
-        """The patch the forager perceives most strongly, or None if nothing is
-        detectable. Also tells the world when the forager switches away from a
-        patch (World.leave_patch), which is how spent patches get cleared."""
+        """The patch the forager smells most, or None. Switching away from a patch
+        tells the world, which is how spent patches get cleared."""
         best, best_val = None, 0.0
         for p in self.world.patches:
             v = self._patch_intensity(p, t)
@@ -290,16 +254,9 @@ class Agent:
 
     def simulate(self, t_span: tuple, rtol: float = 1e-6, atol: float = 1e-8,
                  record_frames: int = 0) -> AgentHistory:
-        """Run the forager from t_span[0] to t_span[1].
-
-        The neuron is integrated in chunks of wander_dt. A chunk ends early if V
-        hits threshold: that is a spike, which harvests the strongest patch and
-        resets V. If a chunk ends without a spike the forager takes a movement
-        step instead. The run also stops after max_spikes spikes.
-
-        record_frames > 0 stores that many evenly spaced snapshots in
-        AgentHistory.frames (used by render_forager_video.py).
-        """
+        """Run from t_span[0] to t_span[1], in chunks of wander_dt. A chunk that
+        hits threshold is a spike (take a bite, reset V); otherwise the forager
+        takes a step. record_frames > 0 keeps that many snapshots for the video."""
         t_start, t_end = t_span
         p = self.p
 

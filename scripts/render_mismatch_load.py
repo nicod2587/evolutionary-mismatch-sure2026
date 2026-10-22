@@ -1,24 +1,14 @@
 """
 Figure: the mismatch load.
 
-  red    one fixed genome tuned to the ancestral world, dropped into each world in
-         turn. The genome is derived from the ladder itself (compute_ladder.
-         ancestral_genome at params.ANCESTRAL_MISMATCH).
-  green  the best genome in the biological box (R_bar <= 25, kappa <= 15) for that
-         world, picked from the ladder.
+Red is one genome tuned to the ancestral world, dropped into each world in turn.
+Green is the best genome in the biological box for that world. The gap is the load.
 
-The gap between them is the mismatch load.
+Both are re-scored on 32 held-out worlds the ladder never saw, so green isn't
+flattered by being the luckiest of many noisy cells. The scores are cached in
+results/mismatch_load_data.npz and redone when the ladder changes.
 
-Both lines are re-scored on N_HELDOUT held-out worlds (seeds the ladder never saw),
-the same worlds for both. Picking the best of many noisy cells and then reporting
-that cell's own score would flatter green (the winner's curse); scoring it again on
-new worlds does not. The levels are the ladder's rungs from ANCESTRAL_MISMATCH up.
-
-The re-scoring is cached in results/mismatch_load_data.npz and redone automatically when
-the ladder changes.
-
-  python -m scripts.render_mismatch_load                 # plot (re-scores if needed)
-  python -m scripts.render_mismatch_load --recompute     # force the re-scoring
+  python -m scripts.render_mismatch_load [--recompute]
 """
 import argparse
 import os

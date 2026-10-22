@@ -1,27 +1,18 @@
 """
-The world the forager lives in: a square arena holding a few information patches.
+The arena and its patches.
 
-Each patch has a real value that the forager drains by sampling it, and a scent
-that the forager actually perceives and follows. The whole project turns on how
-those two relate, which is set by `mismatch_index` (0 = ancestral, 1 = modern):
+Each patch has a real value, which the forager drains, and a scent, which is what
+the forager actually follows:
 
   scent   = value_fraction + NOVELTY_WEIGHT * kappa * novelty
   novelty = h * (value_fraction * freshness) + (1 - h) * PATCH_NOVELTY,   h = 1 - mismatch
 
-In the ancestral world (h = 1) novelty only exists while a patch still has value,
-so a drained patch smells drained. In the modern world (h = 0) every patch looks
-equally novel whatever is left in it, so an empty patch keeps its pull. That is
-the supernormal stimulus (De Block & Du Laing 2010; Lim, Yong & Tan 2025).
+At mismatch 0 a drained patch smells drained. At mismatch 1 every patch smells
+equally novel however empty it is, a supernormal stimulus (De Block & Du Laing 2010).
+Nothing else changes with mismatch, and a seed gives the same map at every level.
 
-mismatch_index changes h and nothing else. The number of patches, their value, how
-far their scent carries and how fast the forager travels are the same at every
-level, and a given seed lays out the same map at every level. So any difference
-between levels comes from novelty coming loose from value, not from a richer or
-easier world.
-
-Patches follow the marginal value theorem set-up (Charnov 1976): they deplete as
-the forager works them, and a spent patch is removed once the forager leaves it,
-then replaced after a random delay somewhere else.
+Patches deplete as they are worked (Charnov 1976), get removed once the forager
+leaves them mostly empty, and respawn somewhere else after a random delay.
 """
 
 from __future__ import annotations
@@ -61,13 +52,8 @@ def resource_profile(mismatch_index: float) -> Dict[str, float]:
 
 @dataclass
 class Patch:
-    """One information patch.
-
-    current_utility is the real value left in it. The forager harvests this on
-    every spike and it is what fitness counts. sensory_salience is the scent the
-    patch gives off (with kappa = 1); the forager reweights the novelty part by its
-    own kappa when it perceives the patch (Agent._patch_intensity).
-    """
+    """One patch. current_utility is the value left, which is what fitness counts.
+    sensory_salience is its scent at kappa = 1."""
     x: float
     y: float
     profile: Dict[str, float]
@@ -81,8 +67,7 @@ class Patch:
     freshness_budget: float = FRESHNESS_BUDGET
 
     def deplete(self, amount: float) -> float:
-        """Take up to `amount` of real value. Returns what was actually taken, which
-        is 0 on an empty patch even if it still smells good."""
+        """Take up to `amount` of value and return what was taken (0 if empty)."""
         amount = max(0.0, float(amount))
         harvested = min(amount, self.current_utility)
         self.current_utility = max(0.0, self.current_utility - amount)
@@ -106,10 +91,8 @@ class Patch:
         return 0.0 if vf < 0.0 else (1.0 if vf > 1.0 else vf)
 
     def scent(self, novelty_gain: float = 1.0, value_noise: float = 0.0) -> float:
-        """Perceived scent of the patch (before the spatial envelope), for a forager
-        with curiosity gain kappa = novelty_gain. See the module docstring for the
-        formula. `value_noise` blurs the forager's reading of how much value is left
-        (World.obs_noise_at)."""
+        """Scent before the spatial falloff, for a forager with kappa = novelty_gain.
+        value_noise blurs its reading of the value left."""
         vf = self.value_fraction()
         if value_noise != 0.0:
             vf += value_noise
@@ -131,11 +114,8 @@ class Patch:
 
 
 class World:
-    """A square arena of side 2 * world_half holding up to n_patches patches.
-
-    The patch count dips below n_patches while a removed patch waits to respawn.
-    Call advance(t) each step to run the respawn timers.
-    """
+    """A square arena of side 2 * world_half with up to n_patches patches. Call
+    advance(t) each step to run the respawn timers."""
 
     def __init__(
         self,
@@ -182,13 +162,9 @@ class World:
 
         self._pending_respawns: List[float] = []
         self._next_patch_id = 0
-        # The starting patches are there at full strength from t = 0.
-        #
-        # _sample_position keeps a new patch away from the ones already in
-        # self.patches. The poster runs built all the starting patches in one go,
-        # before any were in self.patches, so they were not spaced from each other
-        # (respawns always were). space_initial_patches=False does the same; every
-        # script here passes it, so the stored landscapes were computed that way.
+        # The starting patches are there at full strength from t = 0. The poster runs
+        # didn't space them from each other (respawns always were spaced).
+        # space_initial_patches=False does the same, and every script here uses it.
         self.patches: List[Patch] = []
         if space_initial_patches:
             for _ in range(self.n_patches):
@@ -200,11 +176,8 @@ class World:
     # -- observation noise ---------------------------------------------------
 
     def obs_noise_at(self, patch: Patch, t: float) -> float:
-        """Noise on the forager's reading of `patch`'s value at time t.
-
-        Each patch gets one slowly varying (Ornstein-Uhlenbeck) path, so the
-        forager has to average over time to judge a patch, which is the job of
-        the slow beta signal."""
+        """Noise on the forager's reading of a patch's value: one slow
+        Ornstein-Uhlenbeck path per patch, so judging a patch takes time."""
         if self.obs_noise <= 0.0:
             return 0.0
         path = self._noise_paths.get(patch.patch_id)
@@ -253,11 +226,8 @@ class World:
         return float(self.rng.uniform(lo, hi)), float(self.rng.uniform(lo, hi))
 
     def _draw_value(self, mean_value: float) -> float:
-        """Real value of a new patch, drawn from a lognormal around the profile mean.
-
-        Patches differ in worth, but the scent only shows the *fraction* left
-        (always 1 on a fresh patch), so the forager can't tell a rich patch from a
-        poor one at a glance. It has to sample."""
+        """Lognormal value around the mean. The scent only shows the fraction left,
+        so the forager can't tell a rich patch from a poor one without sampling."""
         if self.value_cv <= 0.0 or mean_value <= 0.0:
             return float(mean_value)
         sigma_ln = math.sqrt(math.log(1.0 + self.value_cv ** 2))
@@ -303,9 +273,8 @@ class World:
     # -- called by the agent --------------------------------------------------
 
     def engage_patch(self, patch: Patch, amount: float, t: float) -> float:
-        """The forager spiked on `patch`: harvest up to `amount` of real value.
-        A patch is never removed here, so an empty modern patch can keep the
-        forager hooked until its own beta signal pulls it away."""
+        """Harvest up to `amount` from a patch. Patches are never removed here, so
+        an empty one keeps its pull."""
         if patch not in self.patches:
             return 0.0
         harvested = patch.deplete(amount)

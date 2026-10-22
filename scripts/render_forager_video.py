@@ -1,15 +1,7 @@
 """
-A portrait (1080 x 1920) MP4 of one forager at work, for showing on a phone: the
-forager moving through a world of several patches, with its membrane V and
-opportunity-cost signal beta scrolling underneath.
+Phone-sized (1080 x 1920) video of the ancestral-tuned forager, with V and beta
+scrolling underneath. Needs imageio-ffmpeg. Saves results/forager_<label>.mp4.
 
-The forager is the ancestral-tuned genome (params.ANCESTRAL_GENOME). Patches brighten as
-they spawn, fade as they are eaten, and disappear once the forager gives up on them.
-Needs ffmpeg, which the imageio-ffmpeg package provides.
-
-Saves results/forager_<label>.mp4.
-
-Usage:
   python -m scripts.render_forager_video                       # ancestral world
   python -m scripts.render_forager_video --mismatch_index 1.0  # modern world
 """

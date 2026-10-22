@@ -1,12 +1,6 @@
 """
-Figure: one forager and one patch.
-
-Left: the scent field and the forager's path. It starts in a corner beyond the
-reach of the scent, random-walks until it picks the scent up, then heads straight
-in. Right: the neuron over the same run, membrane V and the opportunity-cost
-signal beta.
-
-  python -m scripts.render_agent_single_patch
+Figure: one forager, one patch. Left, its path through the scent. Right, V and beta
+over the same run.
 """
 import argparse
 import warnings

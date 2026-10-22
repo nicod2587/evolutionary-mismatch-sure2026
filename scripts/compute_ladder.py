@@ -1,23 +1,14 @@
 """
-Compute the R_bar x kappa fitness landscape at a series of mismatch levels ("rungs").
+The R_bar x kappa fitness landscape at several mismatch levels ("rungs").
 
-Every cell is scored with fitness.evaluate_genome on the same fixed worlds; the only
-thing that changes from rung to rung is mismatch_index, and that only changes whether
-novelty tracks real value (see world.py). The result is one file, ladder_stack.npz,
-holding F[rung, R_bar, kappa]. All the figures read it.
+Every cell is scored on the same fixed worlds, so only the mismatch differs between
+rungs. Both axes are log-spaced because both traits matter over orders of magnitude.
+The output, ladder_stack.npz, holds F[rung, R_bar, kappa] and every figure reads it.
 
-Both traits are scale parameters that matter over orders of magnitude (the best kappa
-moves by about a decade along the ladder), so by default both axes are spaced evenly
-on a log scale: a coarse grid then still has several cells inside the biological box.
+Rungs are scored ends first and a partial file is saved after each one, so a killed
+job can be resubmitted and carries on where it stopped.
 
-Cost is res * res * len(rungs) cells, each one n_worlds simulations. The rungs are
-scored in PRIORITY order (the two ends first, then the reference rung, then the
-rest) and ladder_stack_partial.npz is saved after each one, so a job killed at its
-time limit still leaves the most useful rungs. Run the same command again and it
-picks up from the last finished rung.
-
-  python -u -m scripts.compute_ladder --res 10 --n_jobs 32   # first look -> results/ladder_res10
-  python -u -m scripts.compute_ladder --res 40 --n_jobs 32   # full ladder -> results/ladder_res40
+  python -u -m scripts.compute_ladder --res 10 --n_jobs 32   # -> results/ladder_res10
 """
 import argparse
 import os

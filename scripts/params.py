@@ -1,10 +1,6 @@
 """
-Neuron parameters shared by every simulation.
-
-The forager's neuron has two state variables, the membrane potential V and the
-opportunity-cost signal beta. The numbers below set how those behave. Two of them,
-R_bar and kappa, are the heritable traits that the fitness landscape varies; the
-values here are only defaults so that a plain BASE_PARAMS dict runs on its own.
+Neuron constants shared by every run. R_bar and kappa are the two evolving traits;
+the values here are just defaults.
 """
 
 # The slow timescale of beta. In model units 1 time step is roughly 1 ms (the
@@ -31,12 +27,8 @@ BASE_PARAMS = {
 # poster-v1 value so the two model versions stay comparable.
 ANCESTRAL_MISMATCH = 0.10
 
-# The "ancestral-tuned" forager (the red line in the mismatch-load figure, and the
-# agent in the single-patch figure and the video): the mean (R_bar, kappa) of the
-# top 10% fittest cells inside the biological box (fitness.BOX_R, fitness.BOX_K)
-# of the ANCESTRAL_MISMATCH landscape. compute_ladder prints it at the end of a
-# run (or: python -m scripts.compute_ladder --summarise <stack>).
-#
-# From the pure-v2 40x40 ladder (results/ladder_res40). The poster-v1 value was
-# (14.7, 4.33).
+# The forager tuned to the ancestral world (red in the mismatch-load figure, and the
+# agent in the single-patch figure and the video): the mean (R_bar, kappa) of the top
+# 10% of the box at ANCESTRAL_MISMATCH in the 40x40 ladder. Print it with
+# python -m scripts.compute_ladder --summarise <stack>. The poster used (14.7, 4.33).
 ANCESTRAL_GENOME = (8.7, 2.98)
