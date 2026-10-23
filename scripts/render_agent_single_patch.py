@@ -64,7 +64,7 @@ def render(out_path='results/agent_single_patch.png', seed=8, t_end=4000.0,
     ax_dyn.legend(handles=[ln_v, ln_b], fontsize=7.5, frameon=False, loc='upper left')
     ax_dyn.spines['top'].set_visible(False)
     ax_beta.spines['top'].set_visible(False)
-    ax_dyn.set_title('what it feels: fires when engaged, gives up as β catches up',
+    ax_dyn.set_title('what it feels: fires once the scent is strong enough',
                      fontsize=9.5, color='#444')
 
     fig.tight_layout(pad=0.3)

@@ -63,7 +63,7 @@ def scent_grid(patches, prof, X, Y, t):
     return total
 
 
-def render(out_path, seed=21, t_end=18000.0, mismatch_index=0.0, seconds=40, fps=60,
+def render(out_path, seed=5, t_end=18000.0, mismatch_index=0.0, seconds=40, fps=60,
            window=3000.0, grid_size=140):
     n_frames = int(seconds * fps)
     world, h, leave_times = simulate(seed, t_end, mismatch_index, n_frames)
@@ -86,7 +86,7 @@ def render(out_path, seed=21, t_end=18000.0, mismatch_index=0.0, seconds=40, fps
     ax_w = fig.add_subplot(gs[0]); ax_v = fig.add_subplot(gs[1]); ax_b = fig.add_subplot(gs[2])
     fig.text(0.5, 0.965, f'One forager, {world_name}', ha='center', color=FG,
              fontsize=15, weight='bold')
-    fig.text(0.5, 0.935, 'fires while it feeds, leaves once β catches up', ha='center',
+    fig.text(0.5, 0.935, 'fires while it feeds, leaves when the scent fades', ha='center',
              color=DIM, fontsize=10)
 
     img = ax_w.imshow(np.zeros((grid_size, grid_size)), extent=[-half, half, -half, half],
@@ -156,7 +156,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', default=None)
-    ap.add_argument('--seed', type=int, default=21)
+    ap.add_argument('--seed', type=int, default=5)
     ap.add_argument('--t_end', type=float, default=18000.0)
     ap.add_argument('--mismatch_index', type=float, default=0.0)
     ap.add_argument('--seconds', type=float, default=40)
