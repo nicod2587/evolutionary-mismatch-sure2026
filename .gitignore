@@ -17,3 +17,6 @@ Thumbs.db
 
 # Half-finished landscape runs (compute_ladder resumes from these)
 **/ladder_stack_partial.npz
+
+# Figures made by explore.ipynb
+results/notebook/
