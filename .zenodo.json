@@ -1,0 +1,28 @@
+{
+  "title": "Code for: Modelling Evolutionary Mismatch: Information Foraging and Cost-Free Novelty",
+  "upload_type": "software",
+  "description": "Simulation code for a Sheffield Undergraduate Research Experience (SURE) project, University of Sheffield, summer 2026. A forager is modelled as a single spiking neuron, and the fitness of every combination of two heritable traits is mapped as the environment shifts from ancestral, where novelty signals value, to modern, where novelty carries no information. Presented as a poster at the Bernstein Conference 2026.",
+  "creators": [
+    {
+      "name": "Dunajski, Nicholas",
+      "affiliation": "University of Sheffield",
+      "orcid": "0009-0008-7085-1624"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Marshall, James A. R.",
+      "affiliation": "University of Sheffield",
+      "type": "Supervisor"
+    }
+  ],
+  "license": "MIT",
+  "keywords": ["computational neuroscience", "information foraging", "evolutionary mismatch", "novelty", "spiking neuron"],
+  "related_identifiers": [
+    {
+      "identifier": "10.12751/nncn.bc2026.194",
+      "relation": "isSupplementTo",
+      "scheme": "doi"
+    }
+  ]
+}
